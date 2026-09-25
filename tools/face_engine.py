@@ -978,6 +978,26 @@ def identify_ex(
     _pos_mode = _assign_pos(
         [e for _h, _t, _es, _d in blocks for e in _es], img.shape)
 
+    def _pos_sort_key(mode: str):
+        """按 _assign_pos 判定的排布返回排序键（与其方位标注口径一致）。
+
+        必须分模式选主键：横向一排的两张脸若高低略有差异（斜向站位），
+        按 (y, x) 排会得到与左右相反的顺序，而文案却写「左边是 A，右边是 B」，
+        于是出现「角色认对了、左右颠倒」。一排按 x、一列按 y、散布按自然阅读序。
+        """
+
+        def _center(item):
+            b = (item.get("bbox") if isinstance(item, dict) else None) or []
+            if len(b) != 4:
+                return (10 ** 9, 10 ** 9)
+            return ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+
+        if mode == "row":
+            return lambda it: _center(it)[0]           # 左 → 右
+        if mode == "col":
+            return lambda it: _center(it)[1]           # 上 → 下
+        return lambda it: (_center(it)[1], _center(it)[0])   # 上→下、左→右
+
     if not blocks:
         meta_noface = {
             "path": path, "chat_key": chat_key, "confidence": "noface",
@@ -1074,14 +1094,12 @@ def identify_ex(
                 f"请如实说认不出来，不要硬猜名字。"
             ), _meta("unknown", [])
 
-        # ── 按位置排（上→下、左→右）───────────────────────────────
+        # ── 按画面位置排（口径与 _assign_pos 一致）──────────────────
         # 为什么不能按相似度排：合照里 LLM 只拿到一串名字，无法对应到图上位置，
         # 角色想说「左边那位是谁」就无从判断。按位置排 + 标注方位后，
         # 才可能讲清「上方是 A，下方是 B」。
-        recognized.sort(key=lambda r: (
-            (r["entry"].get("bbox") or [0, 10 ** 9])[1],   # y1（上→下）
-            (r["entry"].get("bbox") or [10 ** 9, 0])[0],   # x1（左→右）
-        ))
+        _sort_by_pos = _pos_sort_key(_pos_mode)
+        recognized.sort(key=lambda r: _sort_by_pos(r["entry"]))
         ordered = [r["dn"] for r in recognized]
         labels = {r["dn"]: (r["entry"].get("pos") or "") for r in recognized}
 
@@ -1173,12 +1191,15 @@ def identify_ex(
     # ---------- 详细模式：附阈值与调参建议（WebUI / 排查） ----------
     shown = hit_blocks or blocks
     lines = []
+    _detail_sort = _pos_sort_key(_pos_mode)
     for _hits, header, entries, has_db in shown:
         if lines:
             lines.append("")
         lines.append(header)
         if not has_db:
             lines.append("  （该库为空，可让用户发「注册人脸 名字」+ 图片来注册）")
+        # 与方位标注同一口径排序，人工核对时与图片左右一致
+        entries = sorted(entries, key=_detail_sort)
         for i, e in enumerate(entries, 1):
             # 用 top1（原始最高分候选），而不是被阈值压平的 name ——
             # 否则未达阈值时会显示「[1] 未知 (相似度 0.778)」，丢掉「最像谁」
