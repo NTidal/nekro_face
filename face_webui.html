@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#090b12">
+<title>人脸识别 · AURORA CONTROL</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #080a11;
+    --bg-soft: #0d101a;
+    --surface: rgba(18, 22, 36, .84);
+    --surface-2: rgba(25, 30, 49, .86);
+    --surface-3: rgba(34, 40, 66, .9);
+    --line: rgba(190, 205, 255, .12);
+    --line-strong: rgba(190, 205, 255, .22);
+    --text: #f1f3fb;
+    --text-soft: #c0c7dc;
+    --muted: #7e88a5;
+    --accent: #8b9cff;
+    --accent-strong: #c0c8ff;
+    --accent-soft: rgba(139, 156, 255, .14);
+    --cyan: #62e3ef;
+    --cyan-soft: rgba(98, 227, 239, .12);
+    --green: #6cdca6;
+    --green-soft: rgba(108, 220, 166, .12);
+    --amber: #e8bd77;
+    --amber-soft: rgba(232, 189, 119, .12);
+    --pink: #f28ac5;
+    --pink-soft: rgba(242, 138, 197, .12);
+    --red: #f47f91;
+    --red-soft: rgba(244, 127, 145, .12);
+    --shadow: 0 25px 80px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.025);
+    --shadow-soft: 0 12px 35px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.045);
+    --radius-xl: 22px;
+    --radius-lg: 16px;
+    --radius-md: 11px;
+    --radius-sm: 8px;
+    --sidebar: 232px;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { min-height: 100%; scroll-behavior: smooth; }
+  body {
+    min-height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
+    color: var(--text);
+    background:
+      radial-gradient(1000px 600px at 84% -10%, rgba(103,91,255,.14), transparent 66%),
+      radial-gradient(760px 520px at 5% 12%, rgba(49,193,216,.08), transparent 70%),
+      var(--bg);
+    font: 14px/1.6 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    content: "";
+    opacity: .25;
+    background-image: linear-gradient(rgba(190,205,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(190,205,255,.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(to bottom, #000, transparent 92%);
+  }
+  button, input, select, textarea { font: inherit; }
+  button { color: inherit; }
+  button, select, input[type=file] { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { color: #fff; background: rgba(139,156,255,.38); }
+
+  .ambient { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+  .orb { position: absolute; border-radius: 50%; filter: blur(85px); opacity: .3; mix-blend-mode: screen; animation: drift 22s ease-in-out infinite alternate; }
+  .orb-a { width: 480px; height: 380px; top: -150px; right: 3%; background: rgba(107,91,255,.35); }
+  .orb-b { width: 380px; height: 300px; bottom: -130px; left: 5%; background: rgba(34,204,219,.18); animation-delay: -7s; }
+  .orb-c { width: 260px; height: 240px; top: 38%; right: 36%; background: rgba(242,138,197,.11); animation-delay: -12s; }
+
+  .topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; min-height: 72px; padding: 12px max(22px, calc((100vw - 1480px) / 2)); border-bottom: 1px solid var(--line); background: rgba(8,10,17,.78); backdrop-filter: blur(22px) saturate(140%); }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .brand-mark { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid rgba(164,178,255,.35); border-radius: 14px; color: #e5e8ff; background: linear-gradient(145deg, #7568e7, #4bbfd3); box-shadow: 0 0 30px rgba(105,90,238,.25); font-size: 20px; animation: float 5s ease-in-out infinite; }
+  .brand-copy { display: grid; min-width: 0; }
+  .brand-copy strong { font-size: 14px; letter-spacing: .02em; }
+  .brand-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .top-actions { display: flex; align-items: center; gap: 8px; }
+  .service-pill { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--text-soft); background: rgba(255,255,255,.035); font-size: 10px; white-space: nowrap; }
+  .service-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 12px var(--amber); }
+  .service-pill.online { color: #aaf0c9; border-color: rgba(108,220,166,.25); background: var(--green-soft); }
+  .service-pill.online i { background: var(--green); box-shadow: 0 0 12px var(--green); }
+  .service-pill.offline { color: #ffb6c2; border-color: rgba(244,127,145,.25); background: var(--red-soft); }
+  .service-pill.offline i { background: var(--red); box-shadow: 0 0 12px var(--red); }
+  .icon-btn { display: inline-grid; width: 36px; height: 36px; place-items: center; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--muted); background: var(--surface-2); }
+  .icon-btn:hover { color: var(--text); border-color: var(--accent-border); background: var(--accent-soft); }
+
+  .app { display: grid; grid-template-columns: var(--sidebar) minmax(0,1fr); width: min(1480px,100%); min-height: calc(100vh - 73px); margin: auto; }
+  .sidebar { position: sticky; top: 73px; align-self: start; height: calc(100vh - 73px); padding: 27px 15px 20px 22px; border-right: 1px solid var(--line); background: linear-gradient(180deg, rgba(12,15,26,.64), rgba(8,10,17,.22)); }
+  .nav-label { margin: 0 11px 10px; color: #606b8c; font-size: 9px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+  .nav { display: grid; gap: 6px; }
+  .nav button { position: relative; display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 10px 12px; border: 1px solid transparent; border-radius: 13px; color: var(--muted); background: transparent; text-align: left; transition: .22s ease; }
+  .nav button::before { position: absolute; left: -18px; width: 3px; height: 0; border-radius: 3px; content: ""; background: linear-gradient(var(--accent), var(--cyan)); box-shadow: 0 0 15px var(--accent); transition: height .3s ease; }
+  .nav button:hover { color: var(--text-soft); border-color: var(--line); background: rgba(255,255,255,.04); transform: translateX(3px); }
+  .nav button.active { color: var(--text); border-color: rgba(139,156,255,.2); background: linear-gradient(100deg, rgba(139,156,255,.18), rgba(98,227,239,.05)); box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 12px 28px rgba(40,32,105,.18); }
+  .nav button.active::before { height: 25px; }
+  .nav-icon { display: grid; width: 27px; height: 27px; place-items: center; border-radius: 9px; color: currentColor; background: rgba(255,255,255,.06); font-size: 14px; }
+  .nav button.active .nav-icon { color: var(--accent-strong); background: var(--accent-soft); }
+  .side-foot { position: absolute; right: 16px; bottom: 20px; left: 22px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; color: var(--muted); background: rgba(255,255,255,.025); font-size: 10px; line-height: 1.55; }
+  .side-foot strong { display: block; margin-bottom: 2px; color: var(--text-soft); font-size: 11px; }
+
+  main { min-width: 0; padding: 33px 34px 70px; }
+  .view { display: none; animation: view-in .5s cubic-bezier(.16,1,.3,1) both; }
+  .view.active { display: block; }
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 23px; }
+  .eyebrow { color: var(--accent-strong); font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+  h1 { margin: 5px 0 0; font-size: clamp(24px,3.4vw,34px); letter-spacing: -.04em; line-height: 1.12; }
+  .page-desc { max-width: 720px; margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+  .head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 8px 13px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--text-soft); background: var(--surface-2); font-size: 12px; transition: .2s ease; }
+  .btn:hover { color: var(--text); border-color: var(--accent-border); background: var(--surface-3); transform: translateY(-1px); }
+  .btn.primary { border-color: rgba(139,156,255,.45); color: #fff; background: linear-gradient(110deg,#7465e7,#4ab9d0); box-shadow: 0 10px 25px rgba(81,66,192,.25); }
+  .btn.primary:hover { box-shadow: 0 14px 34px rgba(81,66,192,.38); }
+  .btn.ok { color: #a8efca; border-color: rgba(108,220,166,.3); background: var(--green-soft); }
+  .btn.warn { color: #f7d89f; border-color: rgba(232,189,119,.3); background: var(--amber-soft); }
+  .btn.danger { color: #ffb5c0; border-color: rgba(244,127,145,.28); background: var(--red-soft); }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn:disabled { cursor: not-allowed; opacity: .48; transform: none; }
+  .btn.loading { pointer-events: none; opacity: .65; }
+
+  .grid { display: grid; gap: 15px; }
+  .stats-grid { grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 16px; }
+  .two-col { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .three-col { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .panel { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: linear-gradient(145deg,rgba(21,26,43,.82),rgba(11,14,24,.75)); box-shadow: var(--shadow-soft); backdrop-filter: blur(18px); }
+  .panel::before { position: absolute; top: 0; right: 20%; left: 20%; height: 1px; content: ""; background: linear-gradient(90deg,transparent,rgba(214,222,255,.45),transparent); }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 53px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+  .panel-title { margin: 0; font-size: 13px; font-weight: 650; }
+  .panel-subtitle { margin-top: 2px; color: var(--muted); font-size: 10px; }
+  .panel-body { padding: 16px; }
+  .stat { position: relative; overflow: hidden; padding: 17px; border: 1px solid var(--line); border-radius: 17px; background: linear-gradient(145deg,rgba(24,30,50,.8),rgba(12,16,28,.72)); }
+  .stat::after { position: absolute; top: 16px; right: 16px; width: 8px; height: 8px; border-radius: 50%; content: ""; background: var(--accent); box-shadow: 0 0 0 5px var(--accent-soft),0 0 18px var(--accent); }
+  .stat.green::after { background: var(--green); box-shadow: 0 0 0 5px var(--green-soft),0 0 18px var(--green); }
+  .stat.cyan::after { background: var(--cyan); box-shadow: 0 0 0 5px var(--cyan-soft),0 0 18px var(--cyan); }
+  .stat.amber::after { background: var(--amber); box-shadow: 0 0 0 5px var(--amber-soft),0 0 18px var(--amber); }
+  .stat-label { color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+  .stat-value { margin: 7px 0 2px; font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat-value small { color: var(--muted); font-size: 11px; font-weight: 450; }
+  .stat-note { color: var(--muted); font-size: 10px; }
+
+  .field-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }
+  .field { display: grid; gap: 6px; color: var(--text-soft); font-size: 11px; }
+  .field small { color: var(--muted); font-size: 10px; }
+  input[type=text],input[type=number],input[type=file],select,textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: #0c0f18; font-size: 12px; }
+  input[type=text],input[type=number],select { min-height: 36px; padding: 7px 10px; }
+  textarea { min-height: 82px; padding: 9px 10px; resize: vertical; }
+  input[type=file] { min-height: 40px; padding: 8px; color: var(--muted); }
+  input:focus,select:focus,textarea:focus { outline: none; border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .dropzone { position: relative; display: grid; min-height: 108px; place-items: center; padding: 16px; border: 1px dashed rgba(139,156,255,.38); border-radius: 13px; color: var(--muted); background: rgba(139,156,255,.05); text-align: center; cursor: pointer; transition: .2s ease; }
+  .dropzone:hover,.dropzone.dragover { border-color: var(--cyan); background: var(--cyan-soft); }
+  .dropzone input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+  .dropzone strong { display: block; color: var(--text-soft); font-size: 12px; }
+  .dropzone small { display: block; margin-top: 3px; font-size: 10px; }
+  .form-actions { display: flex; align-items: center; gap: 8px; margin-top: 13px; }
+  .form-note { margin-top: 10px; color: var(--muted); font-size: 10px; line-height: 1.6; }
+  .inline-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .msg { display: none; margin-top: 11px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+  .msg.show { display: block; }
+  .msg.ok { color: #a9efca; border-color: rgba(108,220,166,.28); background: var(--green-soft); }
+  .msg.err { color: #ffb7c2; border-color: rgba(244,127,145,.28); background: var(--red-soft); }
+  .msg.info { color: #b7d8ff; border-color: rgba(98,227,239,.25); background: var(--cyan-soft); }
+
+  .badge { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.04); font-size: 10px; white-space: nowrap; }
+  .badge.anime { color: #d5a5ff; border-color: rgba(190,130,255,.3); background: rgba(190,130,255,.1); }
+  .badge.real { color: #a9efca; border-color: rgba(108,220,166,.3); background: var(--green-soft); }
+  .badge.mid { color: #f8d99e; border-color: rgba(232,189,119,.3); background: var(--amber-soft); }
+  .badge.low { color: #d8b5ff; border-color: rgba(190,130,255,.3); background: rgba(190,130,255,.1); }
+  .badge.unknown { color: #ffb5c1; border-color: rgba(244,127,145,.3); background: var(--red-soft); }
+  .badge.noface { color: var(--muted); }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .search { position: relative; flex: 1 1 220px; min-width: 180px; }
+  .search input { padding-left: 33px; }
+  .search::before { position: absolute; top: 50%; left: 11px; z-index: 1; color: var(--muted); content: "⌕"; font-size: 17px; transform: translateY(-53%); pointer-events: none; }
+  select { min-width: 130px; }
+  .result-count { color: var(--muted); font-size: 10px; }
+
+  .library-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(175px,1fr)); gap: 13px; }
+  .library-card { overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--surface-2); cursor: pointer; transition: .25s ease; }
+  .library-card:hover { border-color: var(--accent-border); box-shadow: 0 17px 38px rgba(0,0,0,.25),0 0 28px rgba(139,156,255,.1); transform: translateY(-4px); }
+  .library-cover { display: grid; width: 100%; height: 160px; place-items: center; color: #66708b; background: #0b0e17; font-size: 32px; }
+  .library-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .library-body { padding: 10px 11px 12px; }
+  .library-name { overflow: hidden; color: var(--text); font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+  .library-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+  .work-head { grid-column: 1/-1; display: flex; align-items: baseline; gap: 9px; margin: 8px 0 -1px; padding: 11px 2px 8px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 650; }
+  .work-head span { color: var(--muted); font-size: 10px; font-weight: 450; }
+
+  .review-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(310px,1fr)); gap: 14px; }
+  .review-card { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: linear-gradient(145deg,rgba(23,28,47,.86),rgba(11,14,24,.8)); box-shadow: var(--shadow-soft); }
+  .review-media { position: relative; height: 205px; background: #090c14; cursor: zoom-in; }
+  .review-media img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .review-media::after { position: absolute; inset: 0; content: ""; background: linear-gradient(transparent 65%,rgba(5,7,12,.75)); pointer-events: none; }
+  .review-top { position: absolute; z-index: 1; top: 10px; right: 10px; left: 10px; display: flex; align-items: center; justify-content: space-between; }
+  .review-body { display: flex; flex: 1; flex-direction: column; gap: 10px; padding: 12px; }
+  .review-summary { color: var(--text-soft); font-size: 11px; line-height: 1.55; }
+  .review-summary strong { color: var(--text); }
+  .face-block { padding-top: 9px; border-top: 1px dashed var(--line); }
+  .face-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; color: var(--text-soft); font-size: 11px; font-weight: 650; }
+  .face-head small { color: var(--muted); font-size: 9px; font-weight: 450; }
+  .candidate { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 0; border-bottom: 1px dashed rgba(190,205,255,.07); }
+  .candidate:last-child { border-bottom: 0; }
+  .candidate-name { min-width: 74px; color: var(--text-soft); font-size: 11px; }
+  .candidate-score { flex: 1; color: var(--muted); font-family: ui-monospace,monospace; font-size: 9px; }
+  .candidate button { padding: 4px 7px; font-size: 10px; }
+  .manual-row { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+  .manual-row input { min-height: 30px; padding: 5px 8px; }
+  .review-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 9px; border-top: 1px solid var(--line); }
+  .review-foot small { color: var(--muted); font-size: 9px; }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 15px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); background: var(--surface); font-size: 10px; }
+  .pager-actions { display: flex; gap: 6px; }
+
+  .modal { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(2,3,8,.78); backdrop-filter: blur(12px); }
+  .modal.open { display: flex; }
+  .modal-box { width: min(850px,100%); max-height: min(90vh,900px); overflow: auto; border: 1px solid var(--line-strong); border-radius: 19px; background: linear-gradient(145deg,rgba(26,31,52,.98),rgba(9,12,21,.98)); box-shadow: 0 30px 100px rgba(0,0,0,.55); }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
+  .modal-title { font-size: 15px; font-weight: 650; }
+  .modal-body { padding: 17px; }
+  .image-view { max-width: 100%; max-height: 76vh; border-radius: 12px; }
+  .feature-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(150px,1fr)); gap: 11px; }
+  .feature { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }
+  .feature img,.feature .placeholder { display: grid; width: 100%; height: 165px; place-items: center; object-fit: cover; color: var(--muted); background: #0b0e17; }
+  .feature-foot { display: flex; align-items: center; justify-content: space-between; padding: 7px 8px; }
+  .feature-foot span { color: var(--muted); font-size: 10px; }
+  .confirm-box { width: min(430px,100%); padding: 22px; }
+  .confirm-box h3 { margin: 0 0 8px; font-size: 16px; }
+  .confirm-box p { margin: 0 0 18px; color: var(--text-soft); font-size: 12px; line-height: 1.7; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+  .toast-region { position: fixed; right: 18px; bottom: 18px; z-index: 100; display: grid; gap: 8px; width: min(370px,calc(100vw - 28px)); pointer-events: none; }
+  .toast { padding: 11px 13px; border: 1px solid var(--line-strong); border-radius: 11px; color: var(--text-soft); background: rgba(24,29,48,.96); box-shadow: var(--shadow); font-size: 11px; animation: toast-in .22s ease both; }
+  .toast::before { display: inline-block; width: 6px; height: 6px; margin: 0 8px 1px 0; border-radius: 50%; content: ""; background: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-soft); }
+  .toast.error::before { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
+  .toast.success::before { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+  .empty { padding: 45px 18px; color: var(--muted); text-align: center; }
+  .empty strong { display: block; margin-bottom: 4px; color: var(--text-soft); font-size: 13px; }
+  .skeleton { position: relative; overflow: hidden; min-height: 110px; border-radius: 14px; background: var(--surface-3); }
+  .skeleton::after { position: absolute; inset: 0; content: ""; background: linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent); animation: shimmer 1.25s infinite; }
+  .divider { height: 1px; margin: 14px 0; background: var(--line); }
+  .inline-list { display: grid; gap: 7px; }
+  .inline-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.025); }
+  .inline-row strong { display: block; color: var(--text-soft); font-size: 11px; font-weight: 600; }
+  .inline-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .muted { color: var(--muted); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+  @keyframes drift { from { transform: translate3d(-4%,-3%,0) scale(.92); } to { transform: translate3d(7%,8%,0) scale(1.1); } }
+  @keyframes float { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
+  @keyframes view-in { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: none; } }
+  @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }
+  @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .two-col { grid-template-columns: 1fr; } }
+  @media (max-width: 820px) {
+    :root { --sidebar: 0px; }
+    .topbar { min-height: 68px; padding: 10px 15px; }
+    .app { display: block; }
+    .sidebar { position: sticky; top: 68px; z-index: 20; display: block; width: 100%; height: auto; padding: 8px 15px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); background: rgba(8,10,17,.88); backdrop-filter: blur(15px); }
+    .nav-label,.side-foot { display: none; }
+    .nav { display: flex; width: max-content; gap: 4px; }
+    .nav button { min-height: 36px; padding: 7px 10px; }
+    .nav button::before { display: none; }
+    main { padding: 25px 15px 50px; }
+    .page-head { align-items: flex-start; flex-direction: column; }
+  }
+  @media (max-width: 620px) {
+    .topbar .brand-copy small { max-width: 170px; }
+    .service-pill { display: none; }
+    .stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+    .stat { padding: 13px; }
+    .stat-value { font-size: 21px; }
+    .field-grid,.three-col { grid-template-columns: 1fr; }
+    .panel-head { align-items: flex-start; flex-direction: column; }
+    .toolbar { align-items: stretch; width: 100%; }
+    .toolbar .search { flex-basis: 100%; }
+    .toolbar select { flex: 1; }
+    .review-grid { grid-template-columns: 1fr; }
+    .library-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+    .library-cover { height: 125px; }
+    .modal { padding: 10px; }
+    .feature-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  }
+  /* Day mode: cover native controls and dialogs as well as custom components. */
+  html.day-mode { color-scheme: light; --bg:#f3f5fa; --bg-soft:#e9edf5; --surface:rgba(255,255,255,.92); --surface-2:rgba(248,250,253,.96); --surface-3:rgba(235,239,247,.96); --line:rgba(31,41,55,.13); --line-strong:rgba(31,41,55,.22); --text:#1f2937; --text-soft:#4b5563; --muted:#7b8494; --accent:#6957d4; --accent-strong:#5945bd; --accent-soft:rgba(105,87,212,.1); --accent-border:rgba(105,87,212,.28); --cyan:#287e9e; --cyan-soft:rgba(40,126,158,.1); --green:#16845b; --green-soft:rgba(22,132,91,.1); --amber:#a96c16; --amber-soft:rgba(169,108,22,.1); --pink:#b34482; --pink-soft:rgba(179,68,130,.1); --red:#c94e5e; --red-soft:rgba(201,78,94,.1); --shadow:0 20px 55px rgba(49,62,88,.13); --shadow-soft:0 10px 28px rgba(49,62,88,.08); }
+  html.day-mode body { background: radial-gradient(1000px 600px at 84% -10%,rgba(105,87,212,.1),transparent 66%),radial-gradient(760px 520px at 5% 12%,rgba(40,121,178,.06),transparent 70%),var(--bg); }
+  html.day-mode .topbar { background:rgba(255,255,255,.86); }
+  html.day-mode .sidebar { background:linear-gradient(180deg,rgba(248,250,253,.86),rgba(255,255,255,.56)); }
+  html.day-mode .panel,.day-mode .stat,.day-mode .modal-box { background:rgba(255,255,255,.94); }
+  html.day-mode .library-card,.day-mode .review-card,.day-mode .feature { background:rgba(255,255,255,.92); }
+  html.day-mode input[type=text],html.day-mode input[type=number],html.day-mode select,html.day-mode textarea { color:var(--text); background:#fff; }
+  html.day-mode .library-cover,html.day-mode .review-media,html.day-mode .feature img,html.day-mode .feature .placeholder { background:#e9edf5; }
+  html.day-mode .modal { background:rgba(31,41,55,.28); }
+  html.day-mode .toast { background:#fff; }
+  html.day-mode .nav button.active { background:linear-gradient(100deg,rgba(105,87,212,.12),rgba(40,121,178,.04)); }
+  html.day-mode .btn.primary { background:var(--accent); }
+  html.day-mode * { scrollbar-color:#c5ccda transparent; }
+  html.day-mode .icon-btn,.day-mode .btn { color:var(--text-soft); }
+</style>
+</head>
+<body>
+<div class="ambient" aria-hidden="true"><i class="orb orb-a"></i><i class="orb orb-b"></i><i class="orb orb-c"></i></div>
+<header class="topbar">
+  <div class="brand"><div class="brand-mark">✦</div><div class="brand-copy"><strong>人脸识别 · AURORA CONTROL</strong><small id="brandVersion">动漫 / 真人双库 · 本地离线识别 · v1.0.0</small></div></div>
+  <div class="top-actions"><span id="servicePill" class="service-pill"><i></i><span>检查服务中</span></span><button id="themeToggle" class="icon-btn" type="button" title="切换日间模式" aria-label="切换日间模式">☼</button></div>
+</header>
+<div class="app">
+  <aside class="sidebar" aria-label="主导航"><div class="nav-label">工作区</div><nav class="nav"><button class="active" data-view="overview" type="button"><span class="nav-icon">⌂</span><span>总览</span></button><button data-view="review" type="button"><span class="nav-icon">▣</span><span>待审核队列</span><span id="navQueueCount" class="badge mid" hidden>0</span></button><button data-view="library" type="button"><span class="nav-icon">▦</span><span>角色库</span></button></nav><div class="side-foot"><strong>本地优先</strong>所有识别和特征管理都在本机完成。AI 通过工具主动识人，管理台只负责人工维护。</div></aside>
+  <main>
+    <section class="view active" data-view="overview">
+      <div class="page-head"><div><div class="eyebrow">PERSONA / RECOGNITION OS</div><h1>控制台总览</h1><p class="page-desc">管理已注册人物、调整识别阈值，并把低置信度图片送进审核闭环。</p></div><div class="head-actions"><button class="btn" data-go="review" type="button">查看审核队列</button><button class="btn primary" data-go="library" type="button">打开角色库</button></div></div>
+      <div id="statsGrid" class="stats-grid"><div class="stat skeleton"></div><div class="stat skeleton"></div><div class="stat skeleton"></div><div class="stat skeleton"></div></div>
+      <div class="grid two-col">
+        <section class="panel"><div class="panel-head"><div><h2 class="panel-title">注册新人物</h2><div class="panel-subtitle">上传头像或照片，系统自动判断动漫 / 真人</div></div><span class="badge anime">LOCAL</span></div><form id="registerForm" class="panel-body"><div class="field-grid"><label class="field">作品 / 分类<select id="registerWork"></select></label><label class="field">新建分类名<input id="registerNewWork" type="text" placeholder="选择“新建分类”后填写" hidden></label><label class="field">角色名<input id="registerName" type="text" placeholder="例如：流萤" required></label><label class="field">补充说明（可选）<textarea id="registerNote" placeholder="不会影响识别逻辑"></textarea></label></div><label class="dropzone" id="registerDrop"><input id="registerFile" type="file" accept="image/*"><span><strong>点击或拖入图片</strong><small>支持 JPG / PNG / WebP / BMP，最大 15MB</small></span></label><div class="form-actions"><button class="btn primary" type="submit">注册并写入特征库</button><span class="result-count" id="registerFileName">未选择文件</span></div><div id="registerMsg" class="msg"></div></form></section>
+        <section class="panel"><div class="panel-head"><div><h2 class="panel-title">测试识别</h2><div class="panel-subtitle">不会把测试图当成正式注册</div></div><span class="badge cyan">SANDBOX</span></div><form id="identifyForm" class="panel-body"><label class="dropzone" id="identifyDrop"><input id="identifyFile" type="file" accept="image/*"><span><strong>选择一张待测试图片</strong><small>低置信度结果会自动进入审核队列</small></span></label><div class="field-grid" style="margin-top:12px"><label class="field">真人阈值<input id="identifyRealThreshold" type="number" min=".1" max=".95" step=".05"></label><label class="field">动漫阈值<input id="identifyAnimeThreshold" type="number" min=".1" max=".95" step=".01"></label></div><div class="form-actions"><button class="btn primary" type="submit">开始识别</button><span class="result-count" id="identifyFileName">未选择文件</span></div><div id="identifyMsg" class="msg"></div></form></section>
+        <section class="panel"><div class="panel-head"><div><h2 class="panel-title">识别阈值</h2><div class="panel-subtitle">数值越高越严格，修改后立即用于后续识别</div></div></div><form id="thresholdForm" class="panel-body"><div class="field-grid"><label class="field">真人阈值<input id="thresholdReal" type="number" min=".1" max=".95" step=".05" required></label><label class="field">动漫阈值<input id="thresholdAnime" type="number" min=".1" max=".95" step=".01" required></label></div><div class="form-actions"><button class="btn primary" type="submit">保存阈值</button></div><div class="form-note">建议：认错人时调高；认不出时调低。动漫推荐 0.75～0.85。</div><div id="thresholdMsg" class="msg"></div></form></section>
+        <section class="panel"><div class="panel-head"><div><h2 class="panel-title">待审核快照</h2><div class="panel-subtitle">最近的低置信度图片</div></div><button class="btn" data-go="review" type="button">全部处理</button></div><div id="queueSnapshot" class="panel-body"><div class="empty">加载中…</div></div></section>
+      </div>
+      <section class="panel" style="margin-top:15px"><div class="panel-head"><div><h2 class="panel-title">已注册人物</h2><div class="panel-subtitle">快速改名或删除误注册条目</div></div><button class="btn" id="reloadFaces" type="button">刷新名单</button></div><div id="facesList" class="panel-body"><div class="empty">加载中…</div></div></section>
+    </section>
+
+    <section class="view" data-view="review">
+      <div class="page-head"><div><div class="eyebrow">REVIEW LOOP</div><h1>待审核队列</h1><p class="page-desc">按置信度筛选图片，逐脸确认角色；合照可以分别注册不同角色。</p></div><div class="head-actions"><button class="btn" id="refreshQueue" type="button">刷新队列</button><button class="btn danger" id="clearQueue" type="button">清空队列</button></div></div>
+      <section class="panel"><div class="panel-head"><div class="toolbar"><div class="search"><input id="queueSearch" type="text" placeholder="搜索角色、会话、候选…"></div><select id="queueConfidence"><option value="">全部置信度</option><option value="mid">mid · 大概率</option><option value="low">low · 不确定</option><option value="unknown">unknown · 认不出</option><option value="noface">noface · 未检出人脸</option></select><span id="queueCount" class="result-count">加载中…</span></div></div><div class="panel-body"><div id="queueGrid" class="review-grid"><div class="empty">加载中…</div></div><div id="queuePager" class="pager" hidden><span id="queuePageInfo"></span><div class="pager-actions"><button id="queuePrev" class="btn" type="button">上一页</button><button id="queueNext" class="btn" type="button">下一页</button></div></div></div></section>
+    </section>
+
+    <section class="view" data-view="library">
+      <div class="page-head"><div><div class="eyebrow">FEATURE LIBRARY</div><h1>角色库</h1><p class="page-desc">按作品和类型浏览已注册特征，点击卡片查看每张裁剪图并删除误注册特征。</p></div><div class="head-actions"><button class="btn" id="refreshLibrary" type="button">刷新角色库</button></div></div>
+      <section class="panel"><div class="panel-head"><div class="toolbar"><div class="search"><input id="librarySearch" type="text" placeholder="搜索角色名 / 库内键"></div><select id="libraryWork"><option value="">全部作品</option></select><select id="libraryKind"><option value="">全部类型</option><option value="anime">动漫库</option><option value="real">真人库</option></select><select id="librarySort"><option value="work">按作品</option><option value="count">按特征数</option><option value="name">按名称</option></select><span id="libraryCount" class="result-count">加载中…</span></div></div><div class="panel-body"><div id="libraryGrid" class="library-grid"><div class="empty">加载中…</div></div></div></section>
+    </section>
+  </main>
+</div>
+
+<div class="modal" id="imageModal" role="dialog" aria-modal="true" aria-label="图片预览"><div class="modal-box"><div class="modal-head"><div class="modal-title">图片预览</div><button class="btn" data-close-modal="imageModal" type="button">关闭</button></div><div class="modal-body"><img id="previewImage" class="image-view" alt="审核图片预览"></div></div></div>
+<div class="modal" id="featureModal" role="dialog" aria-modal="true" aria-label="角色详情"><div class="modal-box"><div class="modal-head"><div><div class="modal-title" id="featureTitle">角色详情</div><div class="panel-subtitle" id="featureSubtitle"></div></div><button class="btn" data-close-modal="featureModal" type="button">关闭</button></div><div class="modal-body" id="featureBody"></div></div></div>
+<div class="modal" id="promptModal" role="dialog" aria-modal="true" aria-label="输入"><div class="modal-box confirm-box"><h3 id="promptTitle">修改名称</h3><p id="promptText"></p><input id="promptInput" type="text"><div class="confirm-actions"><button class="btn" data-close-modal="promptModal" type="button">取消</button><button class="btn primary" id="promptConfirm" type="button">确认</button></div></div></div>
+<div class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-label="确认操作"><div class="modal-box confirm-box"><h3 id="confirmTitle">确认操作</h3><p id="confirmText"></p><div class="confirm-actions"><button class="btn" data-close-modal="confirmModal" type="button">取消</button><button class="btn danger" id="confirmAction" type="button">确认</button></div></div></div>
+<div id="toastRegion" class="toast-region" aria-live="polite"></div>
+
+<script>
+'use strict';
+const $ = (s, root=document) => root.querySelector(s);
+const $$ = (s, root=document) => [...root.querySelectorAll(s)];
+const API = location.pathname.replace(/\/(?:review|library)\/?$/, '').replace(/\/$/, '');
+function safeGet(k){ try { return localStorage.getItem(k); } catch(_) { return null; } }
+function safeSet(k,v){ try { localStorage.setItem(k,v); } catch(_) { /* 受限环境（iframe 禁存储/隐私模式）忽略 */ } }
+const state = { view: pathView(), stats: null, faces: [], works: [], queue: [], library: [], queuePage: 1, queuePageSize: 12, libraryModal: null, promptResolve: null, confirmResolve: null, service: false, seq: { dashboard: 0, queue: 0, library: 0 }, theme: safeGet('face_theme') || 'dark' };
+function pathView(){ const p=location.pathname; return /\/review\/?$/.test(p)?'review':/\/library\/?$/.test(p)?'library':'overview'; }
+function esc(v){ return String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function api(path, options={}) { const headers=Object.assign({}, options.headers||{}); let body=options.body; if(body && !(body instanceof FormData) && !headers['Content-Type']) headers['Content-Type']='application/json'; return fetch(API+path,{...options,headers,body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined}).then(async r=>{ const text=await r.text(); let data={}; try{data=text?JSON.parse(text):{}}catch(_){data={detail:text}}; if(!r.ok) throw new Error(data.detail||data.error||`HTTP ${r.status}`); return data; }); }
+function toast(message,type='') { const node=document.createElement('div'); node.className='toast '+type; node.textContent=message; $('#toastRegion').append(node); setTimeout(()=>{node.style.opacity='0';node.style.transform='translateY(5px)';setTimeout(()=>node.remove(),220)},3000); }
+function msg(id,text,type=''){ const node=$('#'+id); node.textContent=text; node.className='msg show '+type; }
+function clearMsg(id){ const node=$('#'+id); node.textContent=''; node.className='msg'; }
+function busy(button,on){ if(!button)return; button.disabled=on; button.classList.toggle('loading',on); }
+function workName(w){ return w || '未标注作品'; }
+function kindLabel(k){ return k==='anime'?'动漫':'真人'; }
+function thumbURL(e,idx){ return API+'/api/library/thumb?kind='+encodeURIComponent(e.kind)+'&name='+encodeURIComponent(e.name)+'&idx='+encodeURIComponent(idx); }
+function imageURL(id,thumb=true){ return API+'/api/image/'+encodeURIComponent(id)+(thumb?'/t':''); }
+function updateService(ok,text){ state.service=ok; const pill=$('#servicePill'); pill.className='service-pill '+(ok?'online':'offline'); $('span',pill).textContent=text|| (ok?'服务在线':'服务离线'); }
+function applyTheme(theme,save=true){ state.theme=theme; document.documentElement.classList.toggle('day-mode',theme==='day'); document.querySelector('meta[name=theme-color]').content=theme==='day'?'#f3f5fa':'#080a11'; $('#themeToggle').textContent=theme==='day'?'☾':'☼'; $('#themeToggle').title=theme==='day'?'切换夜间模式':'切换日间模式'; if(save)safeSet('face_theme',theme); }
+applyTheme(state.theme,false);
+$('#themeToggle').addEventListener('click',()=>applyTheme(state.theme==='day'?'dark':'day'));
+function setView(view,push=true){ if(!['overview','review','library'].includes(view))view='overview'; state.view=view; $$('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view)); $$('.view').forEach(v=>v.classList.toggle('active',v.dataset.view===view)); if(push){ const suffix=view==='overview'?'':('/'+view); history.pushState({},'',API+suffix); } if(view==='overview')loadDashboard(); if(view==='review')loadQueue(); if(view==='library')loadLibrary(); }
+$$('.nav button[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
+$$('[data-go]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.go)));
+window.addEventListener('popstate',()=>setView(pathView(),false));
+setView(state.view,false);
+
+async function loadDashboard(){ const seq=++state.seq.dashboard; try{ const [stats,faces,config,queue,library]=await Promise.all([api('/api/stats'),api('/api/faces'),api('/api/config'),api('/api/queue'),api('/api/library')]); if(seq!==state.seq.dashboard)return; state.stats=stats; state.faces=faces.names||[]; state.queue=queue.items||[]; state.library=library.entries||[]; renderStats(stats); renderFaces(); renderQueueSnapshot(); renderWorkSelects(); renderConfig(config); updateService(true,'服务在线'); }catch(e){ if(seq!==state.seq.dashboard)return; updateService(false,'服务离线'); $('#statsGrid').innerHTML='<div class="empty"><strong>数据加载失败</strong>'+esc(e.message)+'</div>'; toast(e.message,'error'); } }
+function renderStats(s){ const lib=s.library||{}; const queueCount=Number(s.queue||0),navCount=$('#navQueueCount'); navCount.hidden=!queueCount; navCount.textContent=queueCount; const cards=[['待审核',queueCount,'条','amber','需要人工确认的低置信度图片'],['动漫角色',lib.anime_characters||0,'个','cyan','已注册动漫人物'],['真人角色',lib.real_people||0,'个','green','已注册真人照片'],['特征总量',(lib.anime_features||0)+(lib.real_features||0),'张','', '可用于识别的特征向量']]; $('#statsGrid').innerHTML=cards.map(([label,value,unit,tone,note])=>`<div class="stat ${tone}"><div class="stat-label">${label}</div><div class="stat-value">${value}<small>${unit}</small></div><div class="stat-note">${note}</div></div>`).join(''); }
+function renderConfig(c){ $('#thresholdReal').value=c.threshold; $('#thresholdAnime').value=c.anime_threshold; $('#identifyRealThreshold').value=c.threshold; $('#identifyAnimeThreshold').value=c.anime_threshold; }
+function renderWorkSelects(){ const works=state.works.length?state.works:[...new Set(state.library.map(e=>e.work||''))].filter(Boolean).sort(); const cur=$('#registerWork').value; $('#registerWork').innerHTML='<option value="">未分类</option>'+works.map(w=>`<option value="${esc(w)}">${esc(workName(w))}</option>`).join('')+'<option value="__new__">＋ 新建分类</option>'; if(cur)$('#registerWork').value=cur; }
+function renderFaces(){ const box=$('#facesList'); if(!state.faces.length){box.innerHTML='<div class="empty"><strong>还没有注册人物</strong>用上方表单上传第一张头像或照片。</div>';return;} box.innerHTML=`<div class="inline-list">${state.faces.map(f=>`<div class="inline-row"><div><strong>${esc(f.display||f.name)}</strong><small>${kindLabel(f.kind)} · ${f.count} 张特征 · ${esc(f.name)}</small></div><div class="inline-actions"><button class="btn" data-face-action="rename" data-name="${esc(f.name)}" data-kind="${esc(f.kind)}">改名</button><button class="btn danger" data-face-action="delete" data-name="${esc(f.name)}" data-kind="${esc(f.kind)}">删除</button></div></div>`).join('')}</div>`; }
+function renderQueueSnapshot(){ const box=$('#queueSnapshot'); if(!state.queue.length){box.innerHTML='<div class="empty"><strong>队列很干净</strong>目前没有待审核图片。</div>';return;} box.innerHTML=`<div class="inline-list">${state.queue.slice(0,5).map(i=>`<div class="inline-row"><div><strong>${esc((i.recognized||[]).join('、')||'未识别角色')}</strong><small>${esc(i.confidence||'unknown')} · ${esc(i.chat_key||'-')}</small></div><span class="badge ${esc(i.confidence||'unknown')}">${esc(i.confidence||'unknown')}</span></div>`).join('')}</div>`; }
+$('#facesList').addEventListener('click',async e=>{ const b=e.target.closest('[data-face-action]'); if(!b)return; const name=b.dataset.name,kind=b.dataset.kind; if(b.dataset.faceAction==='rename'){ const next=await askPrompt('修改人物名称','改名后该人物的全部特征会一起迁移。',name); if(!next||next===name)return; try{ const fd=new FormData();fd.append('old',name);fd.append('new',next);fd.append('kind',kind);const d=await api('/api/entry/rename',{method:'POST',body:fd});toast('已改名：'+name+' → '+next+(d.merged?'（已并入）':''),'success');await loadDashboard();}catch(err){toast(err.message,'error');} } else { if(!await askConfirm('删除人物','将删除「'+name+'」的全部特征，操作不可撤销。'))return; try{await api('/api/faces/'+encodeURIComponent(name)+'?kind='+encodeURIComponent(kind),{method:'DELETE'});toast('已删除 '+name,'success');await loadDashboard();}catch(err){toast(err.message,'error');} } });
+$('#registerWork').addEventListener('change',()=>{ $('#registerNewWork').hidden=$('#registerWork').value!=='__new__'; });
+function setFileName(input,target){ $(target).textContent=input.files[0]?.name||'未选择文件'; }
+$('#registerFile').addEventListener('change',e=>setFileName(e.target,'#registerFileName')); $('#identifyFile').addEventListener('change',e=>setFileName(e.target,'#identifyFileName'));
+function attachDrop(sel){
+  const zone=$(sel);
+  zone.addEventListener('dragover',e=>e.preventDefault());
+  zone.addEventListener('drop',e=>{
+    e.preventDefault();
+    const input=$('input[type=file]',zone);
+    if(!e.dataTransfer.files.length) return;
+    try{const dt=new DataTransfer();dt.items.add(e.dataTransfer.files[0]);input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));}catch(_){toast('浏览器不支持拖拽赋值，请点击选择文件','error')}
+  });
+}
+attachDrop('#registerDrop'); attachDrop('#identifyDrop');
+
+$('#registerForm').addEventListener('submit',async e=>{e.preventDefault();clearMsg('registerMsg');const name=$('#registerName').value.trim(),file=$('#registerFile').files[0];if(!name)return msg('registerMsg','请填写角色名','err');if(!file)return msg('registerMsg','请选择图片','err');let work=$('#registerWork').value;if(work==='__new__'){work=$('#registerNewWork').value.trim();if(!work)return msg('registerMsg','请填写新分类名','err');}const fd=new FormData();fd.append('name',work?work+'·'+name:name);fd.append('file',file);const button=$('button[type=submit]',e.currentTarget);busy(button,true);msg('registerMsg','正在注册，模型服务可能需要几秒预热…','info');try{const d=await api('/api/register',{method:'POST',body:fd});msg('registerMsg',(d.message||'注册成功')+(d.db_key?'\n库内键：'+d.db_key:''),'ok');$('#registerForm').reset();$('#registerFileName').textContent='未选择文件';$('#registerNewWork').hidden=true;await loadDashboard();}catch(err){msg('registerMsg',err.message,'err');}finally{busy(button,false);}});
+$('#identifyForm').addEventListener('submit',async e=>{e.preventDefault();clearMsg('identifyMsg');const file=$('#identifyFile').files[0];if(!file)return msg('identifyMsg','请选择图片','err');const fd=new FormData();fd.append('file',file);fd.append('threshold',$('#identifyRealThreshold').value);fd.append('anime_threshold',$('#identifyAnimeThreshold').value);const button=$('button[type=submit]',e.currentTarget);busy(button,true);msg('identifyMsg','识别中…','info');try{const d=await api('/api/identify',{method:'POST',body:fd});let text=d.output||'识别完成';if(d.review_id)text+='\n\n已加入待审核队列：'+d.review_id;msg('identifyMsg',text,'ok');await loadDashboard();}catch(err){msg('identifyMsg',err.message,'err');}finally{busy(button,false);}});
+$('#thresholdForm').addEventListener('submit',async e=>{e.preventDefault();clearMsg('thresholdMsg');const r=Number($('#thresholdReal').value),a=Number($('#thresholdAnime').value);if(!Number.isFinite(r)||r<.1||r>.95||!Number.isFinite(a)||a<.1||a>.95)return msg('thresholdMsg','阈值必须在 0.1～0.95 之间','err');const fd=new FormData();fd.append('threshold',r);fd.append('anime_threshold',a);const button=$('button[type=submit]',e.currentTarget);busy(button,true);try{const d=await api('/api/config',{method:'POST',body:fd});$('#thresholdReal').value=d.threshold;$('#thresholdAnime').value=d.anime_threshold;$('#identifyRealThreshold').value=d.threshold;$('#identifyAnimeThreshold').value=d.anime_threshold;msg('thresholdMsg','已保存：真人 '+d.threshold+' / 动漫 '+d.anime_threshold,'ok');}catch(err){msg('thresholdMsg',err.message,'err');}finally{busy(button,false);}});
+$('#reloadFaces').addEventListener('click',()=>loadDashboard());
+
+async function loadQueue(){ const seq=++state.seq.queue; $('#queueCount').textContent='加载中…';try{const f=$('#queueConfidence').value;const d=await api('/api/queue'+(f?'?confidence='+encodeURIComponent(f):''));if(seq!==state.seq.queue)return; state.queue=d.items||[];state.queuePage=1;renderQueue();updateService(true,'服务在线');}catch(e){if(seq!==state.seq.queue)return;$('#queueGrid').innerHTML='<div class="empty"><strong>队列加载失败</strong>'+esc(e.message)+'</div>';toast(e.message,'error');}}
+function filteredQueue(){const q=$('#queueSearch').value.trim().toLowerCase();return state.queue.filter(i=>!q||JSON.stringify({id:i.id,confidence:i.confidence,chat_key:i.chat_key,recognized:i.recognized,faces:i.faces}).toLowerCase().includes(q));}
+function renderQueue(){const all=filteredQueue(),pages=Math.max(1,Math.ceil(all.length/state.queuePageSize));state.queuePage=Math.max(1,Math.min(state.queuePage,pages));const start=(state.queuePage-1)*state.queuePageSize,items=all.slice(start,start+state.queuePageSize);$('#queueCount').textContent=all.length+' 条结果';$('#queuePager').hidden=pages<=1;$('#queuePageInfo').textContent=all.length?`显示 ${start+1}-${Math.min(start+state.queuePageSize,all.length)} / ${all.length}`:'暂无结果';$('#queuePrev').disabled=state.queuePage<=1;$('#queueNext').disabled=state.queuePage>=pages;$('#queueGrid').innerHTML=items.length?items.map(reviewCard).join(''):'<div class="empty"><strong>队列为空</strong>没有符合当前筛选条件的图片。</div>';}
+function reviewCard(i){const faces=i.faces||[],regd=new Set(i.registered||[]);const media=imageURL(i.id,true);let summary=(i.recognized||[]).length?`识别为 <strong>${esc(i.recognized.join('、'))}</strong>`:(faces[0]?.top1?`未达阈值，最像 <strong>${esc(faces[0].top1)}</strong>`:'未识别出角色');const blocks=faces.map((f,fi)=>{const done=regd.has(fi);const cands=(f.candidates||[]).slice(0,4).map(c=>`<div class="candidate"><span class="candidate-name">${esc(c.name)}</span><span class="candidate-score">${Number(c.sim||0).toFixed(3)} · ${c.in_library?'库内 '+Number(c.feats||0):'新条目'}</span>${done?'':`<button class="btn ok" data-review-action="candidate" data-id="${esc(i.id)}" data-face="${fi}" data-name="${esc(c.name)}">注册</button>`}</div>`).join('')||'<div class="muted" style="font-size:10px">无候选</div>';return `<div class="face-block"><div class="face-head"><span>#${fi+1} ${esc(f.pos||'')}</span><small>${esc(f.top1||'')} ${Number(f.sim||0).toFixed(3)}${done?' · 已注册':''}</small></div>${cands}${done?'':`<div class="manual-row"><input data-manual-input data-id="${esc(i.id)}" data-face="${fi}" placeholder="手填角色名"><button class="btn ok" data-review-action="manual" data-id="${esc(i.id)}" data-face="${fi}">注册</button></div>`}</div>`;}).join('');return `<article class="review-card" data-review-card="${esc(i.id)}"><div class="review-media" data-review-action="preview" data-id="${esc(i.id)}"><img src="${media}" loading="lazy" alt="待审核图片"><div class="review-top"><span class="badge ${esc(i.confidence||'unknown')}">${esc(i.confidence||'unknown')}</span><span class="badge">${esc((i.ts_str||'').slice(5,16))}</span></div></div><div class="review-body"><div class="review-summary">${summary}</div>${blocks||'<div class="muted">未检测到人脸</div>'}<div class="review-foot"><small>${esc(i.chat_key||'-')}</small><button class="btn" data-review-action="drop" data-id="${esc(i.id)}">忽略 / 完成</button></div></div></article>`;}
+$('#queueConfidence').addEventListener('change',()=>{state.queuePage=1;loadQueue()});$('#queueSearch').addEventListener('input',()=>{state.queuePage=1;renderQueue()});$('#refreshQueue').addEventListener('click',loadQueue);$('#queuePrev').addEventListener('click',()=>{state.queuePage--;renderQueue()});$('#queueNext').addEventListener('click',()=>{state.queuePage++;renderQueue()});
+$('#queueGrid').addEventListener('click',async e=>{const b=e.target.closest('[data-review-action]');if(!b)return;const action=b.dataset.reviewAction,id=b.dataset.id;if(action==='preview'){ $('#previewImage').src=imageURL(id,false);$('#imageModal').classList.add('open');return;}if(action==='drop'){if(!await askConfirm('忽略这张图片','图片会从审核队列移除，原图也会删除。'))return;try{await api('/api/item/'+encodeURIComponent(id),{method:'DELETE'});toast('已从队列移除','success');await loadQueue();await loadDashboard();}catch(err){toast(err.message,'error');}return;}let name=b.dataset.name;if(action==='manual'){const card=b.closest('[data-review-card]');const input=$('[data-manual-input]',card);name=input?.value.trim()||'';}if(action!=='candidate'&&action!=='manual')return;if(!name)return toast('请填写角色名','error');b.disabled=true;try{const fd=new FormData();fd.append('name',name);fd.append('face',b.dataset.face);const d=await api('/api/item/'+encodeURIComponent(id)+'/register',{method:'POST',body:fd});toast(d.auto_done?'全部人脸已注册，条目已移出队列':d.kept?'已注册，仍有其他脸待处理':'已注册 '+name,'success');await loadQueue();await loadDashboard();}catch(err){toast(err.message,'error');}finally{b.disabled=false;}});
+$('#clearQueue').addEventListener('click',async()=>{if(!await askConfirm('清空审核队列','所有待审核图片会永久删除，操作不可撤销。'))return;try{const d=await api('/api/queue',{method:'DELETE'});toast('已清空 '+d.removed+' 条队列记录','success');await loadQueue();await loadDashboard();}catch(err){toast(err.message,'error');}});
+
+async function loadLibrary(){const seq=++state.seq.library;try{const d=await api('/api/library');if(seq!==state.seq.library)return;state.library=d.entries||[];state.works=[...new Set(state.library.map(e=>e.work||'').filter(Boolean))].sort();const sel=$('#libraryWork'),prev=sel.value;sel.innerHTML='<option value="">全部作品</option>'+state.works.map(w=>`<option value="${esc(w)}">${esc(workName(w))}</option>`).join('');if(prev)sel.value=prev;renderLibrary();updateService(true,'服务在线');}catch(e){if(seq!==state.seq.library)return;$('#libraryGrid').innerHTML='<div class="empty"><strong>角色库加载失败</strong>'+esc(e.message)+'</div>';toast(e.message,'error');}}
+function renderLibrary(){const q=$('#librarySearch').value.trim().toLowerCase(),kind=$('#libraryKind').value,work=$('#libraryWork').value,sort=$('#librarySort').value;let items=state.library.filter(e=>(!q||`${e.display||''} ${e.name||''}`.toLowerCase().includes(q))&&(!kind||e.kind===kind)&&(!work||(e.work||'')===work));$('#libraryCount').textContent=`${items.length} / ${state.library.length} 个角色`;if(!items.length){$('#libraryGrid').innerHTML='<div class="empty"><strong>没有匹配的角色</strong>换个关键词或筛选条件。</div>';return;}if(sort==='name')items.sort((a,b)=>(a.display||'').localeCompare(b.display||''));else if(sort==='count')items.sort((a,b)=>(a.count-b.count)||(a.display||'').localeCompare(b.display||''));else items.sort((a,b)=>((a.work==='')-(b.work===''))||(a.work||'').localeCompare(b.work||'')||(a.count-b.count)||(a.display||'').localeCompare(b.display||''));if(sort!=='work'){$('#libraryGrid').innerHTML=items.map(libraryCard).join('');return;}const groups=new Map();items.forEach(e=>{const w=e.work||'';if(!groups.has(w))groups.set(w,[]);groups.get(w).push(e)});$('#libraryGrid').innerHTML=[...groups].map(([w,arr])=>`<div class="work-head">${esc(workName(w))}<span>${arr.length} 个角色 · ${arr.reduce((s,e)=>s+Number(e.count||0),0)} 张特征</span></div>${arr.map(libraryCard).join('')}`).join('');}
+function libraryCard(e){const cover=e.cover?thumbURL(e,'cover'):'';return `<article class="library-card" data-library-open data-kind="${esc(e.kind)}" data-name="${esc(e.name)}">${cover?`<img class="library-cover" src="${cover}" loading="lazy" alt="${esc(e.display)}">`:'<div class="library-cover">♢</div>'}<div class="library-body"><div class="library-name" title="${esc(e.display)}">${esc(e.display||e.name)}</div><div class="library-meta"><span class="badge ${esc(e.kind)}">${kindLabel(e.kind)}</span><span class="badge">${e.count} 特征</span>${e.count<=2?'<span class="badge mid">易误识</span>':''}</div></div></article>`;}
+$('#refreshLibrary').addEventListener('click',loadLibrary);['#librarySearch','#libraryKind','#libraryWork','#librarySort'].forEach(s=>$(s).addEventListener(s==='#librarySearch'?'input':'change',renderLibrary));
+$('#libraryGrid').addEventListener('click',e=>{const card=e.target.closest('[data-library-open]');if(card)openLibrary(card.dataset.kind,card.dataset.name)});
+function openLibrary(kind,name){const e=state.library.find(x=>x.kind===kind&&x.name===name);if(!e)return;state.libraryModal=e;$('#featureTitle').textContent=e.display||e.name;$('#featureSubtitle').textContent=`库内键 ${e.name} · ${e.count} 张特征`;const n=Number(e.count||0);const cover=e.cover?`<div class="feature-grid"><div class="feature"><img src="${thumbURL(e,'cover')}" loading="lazy" alt="${esc(e.display||e.name)} 代表图"><div class="feature-foot"><span>代表图（最新注册）</span></div></div></div>`:'<div class="empty"><strong>暂无代表图</strong>该条目为早期数据；重新注册一次即会生成。</div>';const rows=Array.from({length:n},(_,i)=>`<div class="inline-row"><div><strong>特征 #${i+1}</strong><small>${i===n-1?'最新注册':'历史特征'}</small></div><div class="inline-actions"><button class="btn danger" data-remove-feature data-kind="${esc(kind)}" data-name="${esc(name)}" data-index="${i}">删除</button></div></div>`).join('');$('#featureBody').innerHTML=cover+`<div class="inline-list" style="margin-top:12px">${rows}</div>`;$('#featureModal').classList.add('open');}
+$('#featureBody').addEventListener('click',async e=>{const b=e.target.closest('[data-remove-feature]');if(!b)return;if(!await askConfirm('删除特征','将删除这张特征，操作不可撤销。'))return;try{const fd=new FormData();fd.append('name',b.dataset.name);fd.append('idx',b.dataset.index);fd.append('kind',b.dataset.kind);const d=await api('/api/library/remove',{method:'POST',body:fd});toast(d.removed_entry?'已删除，角色已从库中移除':`已删除，剩余 ${d.count} 张特征`,'success');$('#featureModal').classList.remove('open');await loadLibrary();}catch(err){toast(err.message,'error');}});
+$$('[data-close-modal]').forEach(b=>b.addEventListener('click',()=>$('#'+b.dataset.closeModal).classList.remove('open')));$('#imageModal').addEventListener('click',e=>{if(e.target.id==='imageModal')e.currentTarget.classList.remove('open')});$('#featureModal').addEventListener('click',e=>{if(e.target.id==='featureModal')e.currentTarget.classList.remove('open')});
+function askConfirm(title,text){if(state.confirmResolve)state.confirmResolve(false);$('#confirmTitle').textContent=title;$('#confirmText').textContent=text;$('#confirmModal').classList.add('open');return new Promise(resolve=>{state.confirmResolve=resolve;});}
+$('#confirmAction').addEventListener('click',()=>{$('#confirmModal').classList.remove('open');state.confirmResolve?.(true);state.confirmResolve=null});$('#confirmModal').querySelector('[data-close-modal]').addEventListener('click',()=>{state.confirmResolve?.(false);state.confirmResolve=null});
+function askPrompt(title,text,value=''){$('#promptTitle').textContent=title;$('#promptText').textContent=text;$('#promptInput').value=value;$('#promptModal').classList.add('open');setTimeout(()=>$('#promptInput').focus(),30);return new Promise(resolve=>{state.promptResolve=resolve;});}
+$('#promptConfirm').addEventListener('click',()=>{const value=$('#promptInput').value.trim();$('#promptModal').classList.remove('open');state.promptResolve?.(value||null);state.promptResolve=null});$('#promptModal').querySelector('[data-close-modal]').addEventListener('click',()=>{state.promptResolve?.(null);state.promptResolve=null});
+async function checkService(){try{const d=await api('/api/health');updateService(Boolean(d.service),d.service?'服务在线':'识别服务未就绪');if(d.plugin_version){const el=$('#brandVersion');if(el)el.textContent='动漫 / 真人双库 · 本地离线识别 · v'+d.plugin_version;}}catch(_){updateService(false,'服务离线')}}checkService();
+</script>
+</body>
+</html>
