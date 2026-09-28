@@ -97,10 +97,66 @@ onnxruntime, insightface, opencv-python, numpy
 | `FACE_TOOLS_DIR` | 空 | 引擎目录。留空用本插件包内 `tools/` |
 | `FACE_VENV_PYTHON` | `/opt/face_venv/bin/python` | 引擎解释器（需自备依赖） |
 | `FACE_UPLOAD_ROOT` | 空 | NA 上传目录（引擎按文件名兜底找图）。留空自动探测 `{NA数据目录}/uploads` |
-| `FACE_SERVER_URL` | `http://127.0.0.1:8766` | 常驻服务地址，建议保持 127.0.0.1 |
+| `FACE_SERVER_URL` | `http://127.0.0.1:8766` | 常驻服务地址。单实例保持 127.0.0.1；多实例共享见[共享服务模式](#共享服务模式v110) |
 | `FACE_SERVER_AUTOSTART` | `true` | 服务不可用时自动拉起；关闭则回退子进程（每次重载模型，较慢） |
 
 阈值优先级：`{数据目录}/config.json`（WebUI 阈值表单写入）> 插件配置。
+
+---
+
+## 共享服务模式（v1.1.0）
+
+默认是**每个 NA 实例各自拉起一个常驻服务**，各自加载模型、各自一份角色库。
+跑多个 NA 实例时，可以把识别服务拆成**一个独立容器**，多个实例共用：
+
+- 模型只加载一份，省内存、省启动时间；
+- 角色库只有一份，任一侧注册 / 改名 / 并入，所有实例立刻生效；
+- 各实例不必再装引擎依赖（依赖只在服务容器里）。
+
+### 服务端
+
+`tools/face_server.py` 支持 `FACE_SERVER_HOST`（v1.1.0 新增，默认 `127.0.0.1` ＝ 仅本机）：
+
+| 环境变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `FACE_SERVER_HOST` | `127.0.0.1` | 独立容器对外提供服务时设 `0.0.0.0` |
+| `FACE_SERVER_PORT` | `8766` | 监听端口 |
+| `FACE_DATA_DIR` | `{NA数据目录}/face` | 特征库 / 模型 / 缩略图目录 |
+| `FACE_UPLOAD_ROOT` | `{NA数据目录}/uploads` | NA 上传目录（引擎按文件名兜底找图） |
+
+示例（把插件自带的 `tools/` 与一份数据目录挂进去）：
+
+```bash
+docker run -d --name nekro_face_service --restart unless-stopped \
+  -e FACE_SERVER_HOST=0.0.0.0 -e FACE_SERVER_PORT=8766 \
+  -e FACE_DATA_DIR=/face_data -e FACE_UPLOAD_ROOT=/uploads \
+  -v /opt/face_venv:/opt/face_venv \
+  -v {NA数据目录}/plugins/packages/nekro_face/tools:/tools:ro \
+  -v {NA数据目录}/face:/face_data \
+  -v {NA数据目录}/uploads:/uploads:ro \
+  kromiose/nekro-agent:latest \
+  /opt/face_venv/bin/python /tools/face_server.py
+```
+
+`tools/` 以**只读**挂入即可（服务只读代码，写操作都落在数据目录）。
+已经部署过旧版服务容器、只想补这个开关的，可以直接用包内补丁：
+
+```bash
+patch -p1 < face_server_host.patch
+```
+
+连通性检查：`curl http://<服务地址>:8766/health` → `{"ok": true, "uptime": …, "counts": {…}}`。
+
+### 客户端（各 NA 实例）
+
+| 配置项 | 共享模式下的取值 |
+| --- | --- |
+| `FACE_SERVER_URL` | 服务容器地址，如 `http://nekro_face_service:8766`（同 Docker 网络）或 `http://<宿主机IP>:8766` |
+| `FACE_SERVER_AUTOSTART` | 建议 **`false`** —— 不在本实例里再拉一个服务 |
+| `FACE_VENV_PYTHON` / `FACE_TOOLS_DIR` | 共享模式下用不到（模型在服务容器里跑） |
+
+> **各实例必须指向同一份 `FACE_DATA_DIR`**（通常就是把同一个宿主机目录挂给每个实例）。
+> 若各自留在自己的数据目录里，会出现"这台认得出、那台认不出"的分裂现象。
 
 ---
 

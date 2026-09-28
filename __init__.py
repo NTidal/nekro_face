@@ -93,7 +93,7 @@ plugin = NekroPlugin(
     name="人脸识别",
     module_name="nekro_face",
     description="让 AI 认出图片中的人脸是谁（动漫/真人），并把认不准的图收集起来供人工复核补图",
-    version="1.0.0",
+    version="1.1.0",
     author="NTidal",
     url="https://github.com/NTidal/nekro_face",
     i18n_name=i18n.i18n_text(zh_CN="人脸识别", en_US="Face Recognition"),

@@ -28,6 +28,9 @@ except Exception:  # noqa: BLE001
     face_review_queue = None
 
 PORT = int(os.environ.get("FACE_SERVER_PORT", "8766"))
+# 监听地址：默认仅本机（NA 本地拉起时的行为）；
+# 作为独立容器对外提供服务时用 FACE_SERVER_HOST=0.0.0.0。
+HOST = (os.environ.get("FACE_SERVER_HOST", "127.0.0.1") or "127.0.0.1").strip()
 _lock = threading.Lock()  # 串行化推理，避免 CPU 争抢
 _started = time.time()
 _count = {"identify": 0, "register": 0}
@@ -194,6 +197,6 @@ if __name__ == "__main__":
     t = time.time()
     ok = warmup()
     print(f"[face_server] 预热{'成功' if ok else '失败'}，耗时 {time.time() - t:.2f}s | 端口 {PORT}", flush=True)
-    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"[face_server] 已启动，监听 127.0.0.1:{PORT}", flush=True)
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"[face_server] 已启动，监听 {HOST}:{PORT}", flush=True)
     srv.serve_forever()
