@@ -92,7 +92,7 @@ plugin = NekroPlugin(
     name="人脸识别",
     module_name="nekro_face",
     description="让 AI 认出图片中的动漫角色是谁，并把认不准的图收集起来供人工复核补图",
-    version="1.2.0",
+    version="1.2.1",
     author="NTidal",
     url="https://github.com/NTidal/nekro_face",
     i18n_name=i18n.i18n_text(zh_CN="人脸识别", en_US="Face Recognition"),
@@ -475,6 +475,15 @@ def _get_thresholds() -> float:
     return max(0.1, min(0.95, anime_t))
 
 
+# ---------------------------------------------------------------------------
+# 库访问架构：插件进程【不直接读/写 63MB 库 JSON】。
+# 一切经 face_server /library 单源供数（其内存持有解析后的库，mtime 缓存），
+# 插件侧再做 5s TTL 二级缓存 —— 首查从 0.85s 降到 ~0.03s，进程内存省 ~150MB，
+# 并消除「插件直写库」与 face_server 的并发隐患。
+# ---------------------------------------------------------------------------
+
+_LIB_CACHE: dict = {}
+_Q_CACHE: dict = {}
 
 
 async def _lib_entries(force: bool = False) -> list[dict]:
