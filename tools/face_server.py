@@ -2,8 +2,8 @@
 
 用法（后台）：/opt/face_venv/bin/python face_server.py &
 接口：
-  POST /identify  {"image": "<path>", "threshold": 0.5, "anime_threshold": 0.78}
-  POST /register  {"image": "<path>", "name": "xx", "mode": "anime|auto|real"}
+  POST /identify  {"image": "<path>", "anime_threshold": 0.78, "chat_key": ""}
+  POST /register  {"image": "<path>", "name": "xx", "mode": "anime|auto"}
   GET  /health
   GET  /library                      已注册条目概览（含缩略图索引）
   GET  /thumb?kind=&name=&idx=       某特征的裁剪图（JPEG）
@@ -116,9 +116,10 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 if self.path == "/identify":
                     _count["identify"] += 1
+                    # 注意：identify_ex 的签名是 (image_path, anime_thr, chat_key, detail)，
+                    # 真人阈值参数已随真人链路一起移除 —— 多传一个位置参数会直接 500。
                     out, meta = face_engine.identify_ex(
                         req.get("image", ""),
-                        float(req.get("threshold", face_engine.REAL_THRESHOLD)),
                         float(req.get("anime_threshold", face_engine.ANIME_THRESHOLD)),
                         req.get("chat_key", ""),
                         bool(req.get("detail", False)),

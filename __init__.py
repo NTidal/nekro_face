@@ -92,7 +92,7 @@ plugin = NekroPlugin(
     name="人脸识别",
     module_name="nekro_face",
     description="让 AI 认出图片中的动漫角色是谁，并把认不准的图收集起来供人工复核补图",
-    version="1.2.1",
+    version="1.2.2",
     author="NTidal",
     url="https://github.com/NTidal/nekro_face",
     i18n_name=i18n.i18n_text(zh_CN="人脸识别", en_US="Face Recognition"),
@@ -405,7 +405,6 @@ async def _call_server(endpoint: str, payload: dict, timeout: float = 120) -> tu
     if endpoint == "/identify":
         args = [
             "face_identify.py", payload.get("image", ""),
-            "--threshold", str(payload.get("threshold", 0.5)),
             "--anime-threshold", str(payload.get("anime_threshold", 0.78)),
         ]
         if chat_key:
