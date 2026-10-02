@@ -7,12 +7,12 @@
 > 识别行为对动漫图**完全不变**（30 张实图回归：原 30 认出 / 新 30 认出，0 差异）。
 
 
-NekroAgent 插件：让 AI 在聊天中**自己会认人**（动漫角色 / 真人），并把「认不准」的图
+NekroAgent 插件：让 AI 在聊天中**自己会认人**（动漫角色），并把「认不准」的图
 自动收集到待审核队列，供人工复核补图。
 
 - **AI 侧**：提供两个 AGENT 工具，识别结论进入 AI 上下文，由 AI 按当前角色人格自然表达；不注册任何聊天指令
 - **人工侧**：Aurora 主题 WebUI（总览 / 待审核队列 / 角色库），深色优先、支持日间模式
-- **识别**：纯本地离线推理，动漫 YOLOv8 + CCIP（768 维）、真人 insightface buffalo_l（512 维），双库自动分流
+- **识别**：纯本地离线推理，动漫 YOLOv8 检测 + CCIP 特征（768 维）
 
 版本：**1.1.0**　作者：**NTidal**
 
@@ -24,7 +24,7 @@ NekroAgent 插件：让 AI 在聊天中**自己会认人**（动漫角色 / 真�
 - 📋 **待审核闭环**：置信度不足的图自动入队（含检测框、候选与相似度），WebUI 一键注册补图
 - 👥 **逐脸注册**：合照可逐张脸注册到不同角色，全部注册完自动出队
 - 🗂️ **角色库管理**：按作品分组/筛选/搜索/排序，改名并入、删除误注册特征、代表图预览
-- 🎚️ **阈值可调**：WebUI 实时调整动漫/真人阈值，写入数据目录的 `config.json`
+- 🎚️ **阈值可调**：WebUI 实时调整动漫识别阈值，写入数据目录的 `config.json`
 - 🔒 **默认安全**：常驻服务只监听 `127.0.0.1`；上传校验扩展名与大小；写配置原子替换并留 `.bak`
 
 ---
@@ -55,7 +55,7 @@ AI 聊天 ──工具调用──> __init__.py（插件）──HTTP 127.0.0.1:
 **1. 引擎解释器（独立 venv）**
 
 ```
-onnxruntime, insightface, opencv-python, numpy
+onnxruntime, opencv-python, numpy
 ```
 
 默认路径 `/opt/face_venv/bin/python`；可用配置项 `FACE_VENV_PYTHON` 指向任何已装好上述依赖的解释器。
@@ -65,9 +65,8 @@ onnxruntime, insightface, opencv-python, numpy
 | 路径 | 内容 |
 |---|---|
 | `{数据目录}/anime_models/anime_face_detect.onnx` | 动漫脸检测（YOLOv8） |
-| `{数据目录}/anime_models/anime_real_cls.onnx` | 动漫 / 真人分流 |
+| `{数据目录}/anime_models/anime_real_cls.onnx` | 图片类型判定（是否动漫）|
 | `{数据目录}/anime_models/ccip_feat.onnx` | CCIP 动漫特征（768 维） |
-| `{数据目录}/models/buffalo_l/det_10g.onnx`、`w600k_r50.onnx` | insightface 真人检测 + 识别 |
 
 **3. 插件侧依赖**：`httpx`、`Pillow`（队列缩略图），NA 主环境自带。
 
@@ -95,7 +94,6 @@ onnxruntime, insightface, opencv-python, numpy
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `THRESHOLD` | `0.5` | 真人识别阈值（认错人调高，认不出调低） |
 | `ANIME_THRESHOLD` | `0.78` | 动漫识别阈值（CCIP 推荐 0.75~0.85） |
 | `REVIEW_ENABLED` | `true` | 启用待审核收集 |
 | `REVIEW_MAX_ITEMS` | `500` | 队列上限，超出丢弃最旧的（图片一并删除） |
@@ -122,7 +120,7 @@ onnxruntime, insightface, opencv-python, numpy
 
 ### 服务端
 
-`tools/face_server.py` 支持 `FACE_SERVER_HOST`（v1.2.0 新增，默认 `127.0.0.1` ＝ 仅本机）：
+`tools/face_server.py` 支持 `FACE_SERVER_HOST`（v1.1.0 新增，默认 `127.0.0.1` ＝ 仅本机）：
 
 | 环境变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -172,10 +170,8 @@ patch -p1 < face_server_host.patch
 ```
 {数据目录}/
 ├── anime_db.json          动漫特征库（含向量）
-├── face_db.json           真人特征库
 ├── config.json            WebUI 保存的阈值（另有 .bak 备份）
 ├── anime_models/          动漫模型（3 个 onnx）
-├── models/buffalo_l/      insightface 模型
 ├── thumbs/{kind}/{角色}/cover.jpg   角色代表图（每条目仅一张，随注册覆盖为最新）
 ├── review/
 │   ├── queue.json         待审核队列
@@ -203,7 +199,7 @@ patch -p1 < face_server_host.patch
 
 **人工侧（WebUI）**
 
-- **总览**：待审核数、动漫/真人条目与特征总量；注册新角色（可新建作品分类）、测试识别、调整阈值
+- **总览**：待审核数、动漫角色与特征总量；注册新角色（可新建作品分类）、测试识别、调整阈值
 - **待审核队列**：卡片显示原图（走缩略图缓存）、检测到的每张脸、候选与相似度；
   可一键按候选注册、手填角色名注册、逐脸注册，或「忽略 / 完成」出队
 - **角色库**：按作品分组/搜索/筛选/排序；点开查看代表图与特征列表，可删除误注册的单张特征、
