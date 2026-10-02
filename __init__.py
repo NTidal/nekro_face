@@ -14,7 +14,6 @@
 ## 二、两类图，自动分流
 
 - **动漫/二次元头像**：YOLOv8 动漫脸检测 + CCIP 特征（768 维）
-- **真人照片**：insightface buffalo_l（SCRFD + ArcFace，512 维）
 
 全部纯本地离线推理。
 
@@ -92,14 +91,14 @@ from nekro_agent.api.plugin import ConfigBase, ExtraField, NekroPlugin, SandboxM
 plugin = NekroPlugin(
     name="人脸识别",
     module_name="nekro_face",
-    description="让 AI 认出图片中的人脸是谁（动漫/真人），并把认不准的图收集起来供人工复核补图",
-    version="1.1.0",
+    description="让 AI 认出图片中的动漫角色是谁，并把认不准的图收集起来供人工复核补图",
+    version="1.2.0",
     author="NTidal",
     url="https://github.com/NTidal/nekro_face",
     i18n_name=i18n.i18n_text(zh_CN="人脸识别", en_US="Face Recognition"),
     i18n_description=i18n.i18n_text(
-        zh_CN="让 AI 认出图片中的人脸是谁（动漫/真人），并把认不准的图收集起来供人工复核补图",
-        en_US="Let the AI recognize faces (anime/real) and queue low-confidence results for human review",
+        zh_CN="让 AI 认出图片中的动漫角色是谁，并把认不准的图收集起来供人工复核补图",
+        en_US="Let the AI recognize anime characters and queue low-confidence results for human review",
     ),
     allow_sleep=False,
 )
@@ -110,18 +109,6 @@ class FaceRecognitionConfig(ConfigBase):
     """人脸识别 + 待审核队列配置。"""
 
     # ---- 识别阈值 ----
-    THRESHOLD: float = Field(
-        default=0.5,
-        title="真人识别阈值",
-        description="真人照片相似度阈值（0~1，越高越严格；认错人调高，认不出调低）",
-        json_schema_extra=ExtraField(
-            i18n_title=i18n.i18n_text(zh_CN="真人识别阈值", en_US="Real-Face Threshold"),
-            i18n_description=i18n.i18n_text(
-                zh_CN="真人照片相似度阈值（0~1，越高越严格；认错人调高，认不出调低）",
-                en_US="Similarity threshold for real photos (higher = stricter)",
-            ),
-        ).model_dump(),
-    )
     ANIME_THRESHOLD: float = Field(
         default=0.78,
         title="动漫识别阈值",
@@ -317,6 +304,7 @@ FACE_DIR = _resolve_data_dir()
 FACE_VENV_PY = config.FACE_VENV_PYTHON.strip() or "/opt/face_venv/bin/python"
 FACE_TOOLS_DIR = _resolve_tools_dir()
 FACE_UPLOAD_ROOT = _resolve_upload_root()
+# 真人库已废弃（保留常量仅为兼容旧引用；库文件为空）
 FACE_DB = f"{FACE_DIR}/face_db.json"
 ANIME_DB = f"{FACE_DIR}/anime_db.json"
 FACE_CONFIG = f"{FACE_DIR}/config.json"
@@ -475,28 +463,18 @@ def _write_json_atomic(path: str, obj) -> None:
         os.fsync(f.fileno())
     os.replace(tmp, target)
 
-def _get_thresholds() -> tuple[float, float]:
-    """返回 (真人阈值, 动漫阈值)。config.json 优先于插件配置。"""
-    real_t, anime_t = float(config.THRESHOLD), float(config.ANIME_THRESHOLD)
+def _get_thresholds() -> float:
+    """返回动漫阈值。config.json（WebUI 写入）优先于插件配置。"""
+    anime_t = float(config.ANIME_THRESHOLD)
     try:
         with open(FACE_CONFIG, "r", encoding="utf-8") as f:
             cfg = json.load(f)
-        real_t = float(cfg.get("threshold", real_t))
         anime_t = float(cfg.get("anime_threshold", anime_t))
     except Exception:  # noqa: BLE001
         pass
-    return max(0.1, min(0.95, real_t)), max(0.1, min(0.95, anime_t))
+    return max(0.1, min(0.95, anime_t))
 
 
-# ---------------------------------------------------------------------------
-# 库访问架构：插件进程【不直接读/写 63MB 库 JSON】。
-# 一切经 face_server /library 单源供数（其内存持有解析后的库，mtime 缓存），
-# 插件侧再做 5s TTL 二级缓存 —— 首查从 0.85s 降到 ~0.03s，进程内存省 ~150MB，
-# 并消除「插件直写库」与 face_server 的并发隐患。
-# ---------------------------------------------------------------------------
-
-_LIB_CACHE: dict = {}
-_Q_CACHE: dict = {}
 
 
 async def _lib_entries(force: bool = False) -> list[dict]:
@@ -603,7 +581,7 @@ async def _on_init() -> None:
     SandboxMethodType.AGENT,
     name="识别人脸",
     description=(
-        "【认人专用】识别图片里的人脸是谁，返回一个姓名（基于本地已注册人脸库，覆盖动漫角色与真人）。"
+        "【认人专用】识别图片里的人脸是谁，返回一个姓名（基于本地已注册人脸库，覆盖已注册的动漫角色）。"
         "调用时机：**你自己觉得需要知道图中的人是谁**时——比如用户发来图片并想确认身份，"
         "或你想称呼图中人物、需要准确的名字而不是靠猜。判断权在你，不需要等用户说出特定口令。"
         "**直接调用本方法即可，无需先用 view_image 看图**——本方法内部会自行检测人脸。"
@@ -619,16 +597,15 @@ async def face_identify(
     _ctx: schemas.AgentCtx,
     image_path: str = "",
 ) -> str:
-    """识别图片中的人脸是谁（动漫角色 / 真人）。
+    """识别图片中的人脸是谁（动漫角色）。
 
     Args:
         image_path (str): 图片路径或文件名，可选。留空时自动识别当前会话最近收到的图片。
     """
     path = image_path.strip() if image_path else ""
-    real_t, anime_t = _get_thresholds()
+    anime_t = _get_thresholds()
     payload = {
         "image": path,
-        "threshold": real_t,
         "anime_threshold": anime_t,
         "chat_key": getattr(_ctx, "chat_key", "") or "",
     }
@@ -643,7 +620,7 @@ async def face_identify(
     SandboxMethodType.AGENT,
     name="查询已注册人脸",
     description=(
-        "查询当前人脸库里已注册了哪些人（分动漫库和真人库）。"
+        "查询当前人脸库里已注册了哪些人（（动漫库））。"
         "当你想知道能否认出某个人、或想向用户说明你认识哪些人时调用。"
     ),
 )
@@ -656,12 +633,9 @@ async def face_registered_list(_ctx: schemas.AgentCtx) -> str:
     if not entries:
         return "人脸库为空，还没有登记任何人。需要新增请到插件 WebUI 管理台上传照片登记。"
     anime = [f"{e['display']}（{e['count']} 张）" for e in entries if e["kind"] == "anime"]
-    real = [f"{e['display']}（{e['count']} 张）" for e in entries if e["kind"] == "real"]
     parts = []
     if anime:
-        parts.append("动漫头像库：" + "、".join(anime))
-    if real:
-        parts.append("真人照片库：" + "、".join(real))
+        parts.append("动漫角色库：" + "、".join(anime))
     return "\n".join(parts) + "。"
 
 
@@ -699,7 +673,6 @@ th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
 th{color:var(--muted);font-weight:500}
 .badge{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;border:1px solid}
 .badge.anime{color:var(--anime);border-color:rgba(168,85,247,.4);background:rgba(168,85,247,.12)}
-.badge.real{color:var(--ok);border-color:rgba(70,167,92,.4);background:rgba(70,167,92,.12)}
 .msg{margin-top:10px;font-size:13px;padding:8px 10px;border-radius:6px;display:none;white-space:pre-wrap;word-break:break-all}
 .msg.ok{display:block;background:rgba(70,167,92,.12);color:var(--ok);border:1px solid rgba(70,167,92,.3)}
 .msg.err{display:block;background:rgba(229,72,77,.12);color:var(--danger);border:1px solid rgba(229,72,77,.3)}
@@ -713,12 +686,12 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 </head>
 <body>
 <h1>🙂 人脸识别管理台</h1>
-<div class="sub">NA 插件 · 动漫头像 + 真人照片双模式 · 纯本地离线 · v1.0.0（分类管理 / 逐脸注册 / 待审核）</div>
+<div class="sub">NA 插件 · 动漫角色识别 · 纯本地离线 · v1.2.0（分类管理 / 逐脸注册 / 待审核）</div>
 <div class="nav"><a href="__REVIEW_URL__">📋 待审核队列</a> <a href="library">📚 角色库</a></div>
 <div class="usage">
 📌 本插件不给群聊加任何指令。人脸库的增删改都在这张管理台上完成：下面上传照片登记，AI 聊天时就能认出这个人<br>
 🤖 AI 侧通过「识别人脸」工具主动调用，识别结果由 AI 按当前角色人设自然表达<br>
-🎭 动漫头像走 CCIP 特征库，真人照片走 ArcFace 特征库，系统自动判断类型<br>
+🎭 动漫角色走 CCIP 特征库，系统自动识别<br>
 📋 识别<b>未确信</b>的图会自动进入「待审核队列」，确认角色后一键注册即可补图
 </div>
 <div class="grid">
@@ -736,7 +709,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
     <input type="text" id="regName" placeholder="姓名（如：流萤）">
     <input type="file" id="regFile" accept="image/*">
     <button id="regBtn" onclick="doRegister()">上传注册</button>
-    <div class="hint">动漫头像、真人照片都支持，系统自动识别类型入库；同一人可多次上传追加存档<br>
+    <div class="hint">支持动漫角色图，自动识别入库；同一角色可多次上传追加存档<br>
       ⚠️ 选好分类再填角色名：已有该角色自动<b>并入</b>，没有则新建；选「➕ 新建分类」可开新作品</div>
     <div id="regMsg" class="msg"></div>
   </div>
@@ -757,7 +730,6 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
     <h2>⚙️ 识别阈值</h2>
     <div class="row">
       <div>
-        <label>真人阈值（默认 0.50）</label>
         <input type="number" id="thresh" min="0.1" max="0.95" step="0.05" placeholder="0.50">
       </div>
       <div>
@@ -786,7 +758,7 @@ async function loadFaces(){
     if(!d.names.length){el.innerHTML='<div class="empty">暂无注册人脸，上传一张照片或头像注册吧</div>';return}
     let h='<table><tr><th>姓名</th><th>类型</th><th>照片数</th><th style="width:110px"></th></tr>';
     for(const n of d.names){
-      const badge=n.kind==="anime"?'<span class="badge anime">动漫</span>':'<span class="badge real">真人</span>';
+      const badge='<span class="badge anime">动漫</span>';
       h+='<tr><td>'+esc(n.name)+'</td><td>'+badge+'</td><td>'+n.count+'</td>'
         +'<td><button data-act="rn" data-name="'+esc(n.name)+'" data-kind="'+n.kind+'">改名</button> '
         +'<button class="danger" data-act="del" data-name="'+esc(n.name)+'" data-kind="'+n.kind+'">删除</button></td></tr>';
@@ -896,12 +868,11 @@ async function loadThreshold(){
 async function saveThreshold(){
   const v=parseFloat(document.getElementById("thresh").value);
   const a=parseFloat(document.getElementById("animeThresh").value);
-  if(isNaN(v)||v<0.1||v>0.95)return show("cfgMsg","真人阈值需在 0.1 ~ 0.95 之间","err");
   if(isNaN(a)||a<0.1||a>0.95)return show("cfgMsg","动漫阈值需在 0.1 ~ 0.95 之间","err");
   try{
     const fd=new FormData();fd.append("threshold",v);fd.append("anime_threshold",a);
     const d=await call(API+"/api/config",{method:"POST",body:fd});
-    show("cfgMsg","已保存：真人 "+d.threshold+" / 动漫 "+d.anime_threshold,"ok");
+    show("cfgMsg","已保存：动漫阈值 "+d.anime_threshold,"ok");
   }catch(e){show("cfgMsg",e.message,"err")}
 }
 loadFaces();loadThreshold();
@@ -1081,19 +1052,16 @@ def create_router() -> APIRouter:
     @router.post("/api/identify")
     async def api_identify(
         file: UploadFile = File(...),
-        threshold: Optional[float] = Form(None),
         anime_threshold: Optional[float] = Form(None),
     ) -> dict:
-        real_t, anime_t = _get_thresholds()
-        if threshold is not None:
-            real_t = threshold
+        anime_t = _get_thresholds()
         if anime_threshold is not None:
             anime_t = anime_threshold
         path = await _save_upload(file)
         review_id = ""
         try:
             payload = {
-                "image": path, "threshold": real_t, "anime_threshold": anime_t,
+                "image": path, "anime_threshold": anime_t,
                 "detail": True,
                 # 标记来源，便于在审核队列里区分测试图与真实聊天图
                 "source": "webui_test",
@@ -1109,7 +1077,7 @@ def create_router() -> APIRouter:
         if not ok:
             raise HTTPException(status_code=500, detail=f"识别失败：{out}")
         return {
-            "ok": True, "output": out, "threshold": real_t, "anime_threshold": anime_t,
+            "ok": True, "output": out, "anime_threshold": anime_t,
             "review_id": review_id,
         }
 
@@ -1132,9 +1100,9 @@ def create_router() -> APIRouter:
 
     @router.get("/api/config")
     async def get_cfg() -> dict:
-        real_t, anime_t = _get_thresholds()
+        anime_t = _get_thresholds()
         return {
-            "threshold": real_t, "anime_threshold": anime_t,
+            "anime_threshold": anime_t,
             "review_enabled": bool(config.REVIEW_ENABLED),
             "review_max_items": int(config.REVIEW_MAX_ITEMS),
             "review_dedup_seconds": int(config.REVIEW_DEDUP_SECONDS),
@@ -1142,14 +1110,12 @@ def create_router() -> APIRouter:
 
     @router.post("/api/config")
     async def set_cfg(
-        threshold: float = Form(...),
         anime_threshold: Optional[float] = Form(None),
     ) -> dict:
-        real_t = max(0.1, min(0.95, threshold))
-        _, cur_anime = _get_thresholds()
+        cur_anime = _get_thresholds()
         anime_t = max(0.1, min(0.95, anime_threshold if anime_threshold is not None else cur_anime))
-        _write_json_atomic(FACE_CONFIG, {"threshold": real_t, "anime_threshold": anime_t})
-        return {"ok": True, "threshold": real_t, "anime_threshold": anime_t}
+        _write_json_atomic(FACE_CONFIG, {"anime_threshold": anime_t})
+        return {"ok": True, "anime_threshold": anime_t}
 
     # ---------------- 待审核队列 API ----------------
     @router.get("/api/queue")
@@ -1245,7 +1211,7 @@ def create_router() -> APIRouter:
         db_key, is_new = _resolve_from_entries(name, await _lib_entries())
 
         payload = {"image": img, "name": db_key, "mode": "anime",
-                   # 审核注册不允许静默落入真人库（动漫图检出失败时宁可直接报错）
+                   # 审核注册：动漫脸检出失败时直接报错，不静默入库
                    "no_fallback": True}
         keep = False
         if face is not None:
@@ -1346,15 +1312,11 @@ def create_router() -> APIRouter:
             c = i.get("confidence", "?")
             by_conf[c] = by_conf.get(c, 0) + 1
         entries = await _lib_entries()
-        lib = {"anime_characters": 0, "anime_features": 0,
-               "real_people": 0, "real_features": 0}
+        lib = {"anime_characters": 0, "anime_features": 0}
         for e in entries:
             if e["kind"] == "anime":
                 lib["anime_characters"] += 1
                 lib["anime_features"] += e.get("count", 0)
-            else:
-                lib["real_people"] += 1
-                lib["real_features"] += e.get("count", 0)
         return {
             "ok": True,
             "queue": len(items),
