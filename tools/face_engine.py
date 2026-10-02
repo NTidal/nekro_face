@@ -1,8 +1,8 @@
 """双模式人脸识别引擎。
 
 - 动漫头像：anime_face_detection (YOLOv8) 检测 + CCIP 特征 (768 维, 阈值 ~0.82)
-- 真人照片：insightface buffalo_l (SCRFD + ArcFace, 512 维, 阈值 ~0.5)
-- 自动分流：anime_real_cls 判断图片是动漫还是真人
+- 纯动漫识别：CCIP 特征 (768 维) + YOLOv8 动漫脸检测
+- 图片类型判断：anime_real_cls 仅用于判定"这张图是不是动漫"（真人链路已移除）
 """
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ THUMBS_DIR = f"{BASE}/thumbs"   # 注册特征时保存的人脸裁剪图（供 
 
 ANIME_CONF_THR = 0.6
 ANIME_IOU_THR = 0.5
+# 真人识别已移除。REAL_THRESHOLD / REAL_DB 仅为兼容旧调用方而保留，不参与推理。
 REAL_THRESHOLD = 0.5
 ANIME_THRESHOLD = 0.78
-REAL_DET_THR = 0.25
 # 跨作品入库时的名字前缀分隔符（如 "星铁·姬子"）。
 # 库内用带前缀的全名避免撞名，对外展示/AI 输出时去掉前缀。
 WORK_SEP = "·"
@@ -261,7 +261,7 @@ def library_overview() -> list[dict]:
     附带 work 字段（作品前缀，无则空串）—— 前端按作品分组/筛选。
     """
     out: list[dict] = []
-    for kind, path in (("anime", ANIME_DB), ("real", REAL_DB)):
+    for kind, path in (("anime", ANIME_DB),):
         db = load_db(path)
         for name, lst in db.items():
             n = len(lst)
@@ -426,20 +426,10 @@ def _ort(path: str) -> ort.InferenceSession:
 
 
 def _face_analysis():
-    global _face_app
-    if _face_app is None:
-        from insightface.app import FaceAnalysis
+    """已移除（原为 insightface buffalo_l 加载点，约 393 MB 常驻）。"""
+    return None
 
-        app = FaceAnalysis(
-            name="buffalo_l",
-            root=MODELS_ROOT,
-            allowed_modules=["detection", "recognition"],
-            det_size=(640, 640),
-            providers=["CPUExecutionProvider"],
-        )
-        app.prepare(ctx_id=0, det_thresh=REAL_DET_THR)
-        _face_app = app
-    return _face_app
+
 
 
 def _sigmoid(x):
@@ -529,21 +519,17 @@ def anime_embed(face_img) -> np.ndarray:
     return e / (np.linalg.norm(e) + 1e-12)
 
 
-def detect_real(img) -> list[tuple[tuple[int, int, int, int], float, np.ndarray]]:
-    """真人脸检测 + ArcFace 特征，返回 [((x1,y1,x2,y2), score, emb), ...]。"""
-    app = _face_analysis()
-    faces = app.get(img)
-    res = []
-    for f in faces:
-        x1, y1, x2, y2 = (max(0, int(v)) for v in f.bbox)
-        emb = np.asarray(f.embedding, dtype=np.float32)
-        emb = emb / (np.linalg.norm(emb) + 1e-12)
-        res.append(((x1, y1, x2, y2), float(f.det_score), emb))
-    return res
+def detect_real(img) -> list:
+    """已移除：真人脸检测 + ArcFace 特征。
+
+    恒返回空列表。保留函数名只为兼容旧调用方（face_server.py 的路由表），
+    使所有真人分支自然走"未检出"路径。
+    """
+    return []
 
 
-# 库 JSON 达 63MB，若每次识别/注册都完整解析，实测有约 1s 的固定开销。
-# 改为 mtime 缓存：face_server 是唯一写入方，写后同步缓存。
+
+
 _DB_CACHE: dict = {}
 
 
@@ -755,8 +741,7 @@ def register(image_path: str, name: str, mode: str = "auto", chat_key: str = "",
     """注册人脸。bbox=(x1,y1,x2,y2) 时注册【指定的那张脸】（合照逐脸注册用），
     未指定则取最大脸（旧行为）。
 
-    no_fallback=True：anime 模式检不出动漫脸时【不】兜底注册进真人库
-    （审核管线用 —— 否则动漫图会被静默塞进真人库，产出无识别价值的脏特征）。"""
+    no_fallback：保留参数以兼容既有调用方；真人库已移除，此参数不再有实际作用。"""
     path = resolve_image_path(image_path, chat_key)
     if not path:
         return f"找不到图片：{image_path}"
@@ -767,7 +752,7 @@ def register(image_path: str, name: str, mode: str = "auto", chat_key: str = "",
     kind = mode
     if mode == "auto":
         kind, a, r = classify_anime_real(img)
-        detail = f"，判别 动漫{a:.2f}/真人{r:.2f}"
+        detail = f"，判别 动漫{a:.2f}"
     else:
         detail = ""
 
@@ -793,50 +778,34 @@ def register(image_path: str, name: str, mode: str = "auto", chat_key: str = "",
 
     # ── 指定脸注册（合照逐脸）：只认 bbox，不做跨类型兜底 ──
     if bbox and len(bbox) == 4:
-        if kind == "anime":
-            dets = detect_anime(img)
-            box = _nearest(dets, bbox)[0] if dets else list(bbox)
-            crop = _crop(img, box)
-            emb = anime_embed(crop)
-            return _commit(ANIME_DB, emb, crop, "anime", "动漫", str(len(emb)))
-        real = detect_real(img)
-        if not real:
-            return "未检测到人脸（指定区域附近无人脸，无法注册）"
-        box, score, emb = _nearest(real, bbox)
-        return _commit(REAL_DB, emb, _crop(img, box), "real", "真人", "512")
+        # 指定脸注册：只走动漫（真人链路已移除）
+        dets = detect_anime(img)
+        box = _nearest(dets, bbox)[0] if dets else list(bbox)
+        crop = _crop(img, box)
+        emb = anime_embed(crop)
+        return _commit(ANIME_DB, emb, crop, "anime", "动漫", str(len(emb)))
 
     if kind == "anime":
         dets = detect_anime(img)
         if not dets:
-            # 兜底：尝试真人（no_fallback=True 时直接拒绝，见 docstring）
-            real = [] if no_fallback else detect_real(img)
-            if real:
-                box, score, emb = max(real, key=lambda d: (d[0][2] - d[0][0]) * (d[0][3] - d[0][1]))
-                return _commit(REAL_DB, emb, _crop(img, box), "real", "真人", "512")
-            if no_fallback:
-                return "未检测到动漫人脸（已按你的要求不落入真人库）"
-            return "未检测到人脸。请上传清晰的正脸图片（动漫头像或真人照片均可）"
+            return "未检测到动漫人脸。请上传清晰的动漫角色图（正脸或半侧脸）。"
         (box, score) = max(dets, key=lambda d: (d[0][2] - d[0][0]) * (d[0][3] - d[0][1]))
         crop = _crop(img, box)
         emb = anime_embed(crop)
         return _commit(ANIME_DB, emb, crop, "anime", "动漫", str(len(emb)))
 
-    real = detect_real(img)
-    if not real:
-        dets = detect_anime(img)
-        if dets:
-            (box, score) = max(dets, key=lambda d: (d[0][2] - d[0][0]) * (d[0][3] - d[0][1]))
-            crop = _crop(img, box)
-            emb = anime_embed(crop)
-            return _commit(ANIME_DB, emb, crop, "anime", "动漫", str(len(emb)))
-        return "未检测到人脸。请上传清晰的正脸图片（动漫头像或真人照片均可）"
-    box, score, emb = max(real, key=lambda d: (d[0][2] - d[0][0]) * (d[0][3] - d[0][1]))
-    return _commit(REAL_DB, emb, _crop(img, box), "real", "真人", "512")
+    # 仅支持动漫注册（真人链路已移除）
+    dets = detect_anime(img)
+    if not dets:
+        return "未检测到动漫人脸。请上传清晰的动漫角色图（正脸或半侧脸）。"
+    (box, score) = max(dets, key=lambda d: (d[0][2] - d[0][0]) * (d[0][3] - d[0][1]))
+    crop = _crop(img, box)
+    emb = anime_embed(crop)
+    return _commit(ANIME_DB, emb, crop, "anime", "动漫", str(len(emb)))
 
 
 def identify(
     image_path: str,
-    real_thr: float = REAL_THRESHOLD,
     anime_thr: float = ANIME_THRESHOLD,
     chat_key: str = "",
     detail: bool = False,
@@ -848,13 +817,12 @@ def identify(
       不带阈值、不指导调参、不写"建议"，把怎么说话完全留给角色人格去组织。
     - detail=True（给 WebUI / 命令行排查用）：附阈值、检测统计、调参建议等完整信息。
     """
-    text, _meta = identify_ex(image_path, real_thr, anime_thr, chat_key, detail)
+    text, _meta = identify_ex(image_path, anime_thr, chat_key, detail)
     return text
 
 
 def identify_ex(
     image_path: str,
-    real_thr: float = REAL_THRESHOLD,
     anime_thr: float = ANIME_THRESHOLD,
     chat_key: str = "",
     detail: bool = False,
@@ -890,14 +858,9 @@ def identify_ex(
     blocks: list = []
     CLOSE_GAP = 0.06  # 第一、二名差距小于此值 → 视为擦边易混
 
-    # ── 路径选择 ─────────────────────────────────────────────
-    # 优先走判定的那条；若该路径「颗粒无收」（0 命中且全未知），
-    # 再跑另一条兜底 —— 分类器实测会把部分动漫图误判为 real
-    # （案例：双人动漫图 a=0.000/r=1.000，走真人路径只得 sim=0.058 的垃圾框，
-    #   而动漫路径本可 0.94/0.82 完美认出）。两条都空才算真的没检出。
-    _primary = "anime" if a_score >= r_score else "real"
-    _fallback = "real" if _primary == "anime" else "anime"
-
+    # ── 路径：纯动漫（真人链路已移除）─────────────────────────
+    # 分类器仍用于识别前判断"是否动漫"，但不再有另一条路径可交叉兜底；
+    # 无论分类结果如何都只跑动漫检测（分类器对动漫图存在误判为 real 的情况）。
     def _run_anime() -> None:
         dets = detect_anime(img)
         if not dets:
@@ -915,63 +878,12 @@ def identify_ex(
             close = bool(name != "未知" and sim2 >= anime_thr and (sim - sim2) < CLOSE_GAP)
             entries.append({"name": name, "sim": sim, "cands": topk,
                             "cand2": cand2, "sim2": sim2, "close": close,
-                            # top1 = 原始最高分候选（无论是否达阈值）。
-                            # name 会被阈值压平成「未知」，若展示层直接用 name，
-                            # 就会出现「[1] 未知 (相似度 0.778)」这种丢信息的输出。
                             "top1": display_name(cand) if cand != "未知" else "未知",
                             "bbox": [int(v) for v in box],
-                            # 该脸自身是否笃定（多脸时 confidence 要看全部脸）
                             "_certain": _certain_of(name, topk, anime_thr)})
-        blocks.append((hits, f"动漫头像（判别 动漫{a_score:.2f}/真人{r_score:.2f}）：检测到 {len(dets)} 张脸", entries, bool(db)))
+        blocks.append((hits, f"动漫头像（判别 动漫{a_score:.2f}）：检测到 {len(dets)} 张脸", entries, bool(db)))
 
-    def _run_real() -> None:
-        real = detect_real(img)
-        if not real:
-            return
-        db = load_db(REAL_DB)
-        entries, hits = [], 0
-        for box, _score, emb in sorted(real, key=lambda d: d[1], reverse=True):
-            topk = _match_topk(emb, db, k=MAX_CANDIDATES) if db else []
-            cand, sim = (topk[0][1], topk[0][0]) if topk else ("未知", 0.0)
-            cand2, sim2 = (topk[1][1], topk[1][0]) if len(topk) > 1 else ("", 0.0)
-            name = cand if sim >= real_thr else "未知"
-            if name != "未知":
-                hits += 1
-            close = bool(name != "未知" and sim2 >= real_thr and (sim - sim2) < CLOSE_GAP)
-            entries.append({"name": name, "sim": sim, "cands": topk,
-                            "cand2": cand2, "sim2": sim2, "close": close,
-                            "top1": display_name(cand) if cand != "未知" else "未知",
-                            "bbox": [int(v) for v in box],
-                            "_certain": _certain_of(name, topk, real_thr)})
-        blocks.append((hits, f"真人照片（判别 动漫{a_score:.2f}/真人{r_score:.2f}）：检测到 {len(real)} 张人脸", entries, bool(db)))
-
-    # 主路径 + 兜底：主路径颗粒无收时才跑另一条。
-    # 兜底的意义：分类器误判时（动漫图被判 real），真人路径只会给出
-    # sim≈0.06 的噪音框 —— 此时必须【丢弃】这些噪音，改用另一条的结果，
-    # 否则垃圾 entry 会与正确结果混在同一份 faces 里，
-    # 并把「全部脸笃定才 certain」的判定拖垮。
-    def _blocks_useful() -> bool:
-        """blocks 里是否存在至少一张「达阈值」的脸。"""
-        return any(h > 0 for h, _t, _e, _d in blocks)
-
-    if _primary == "anime":
-        _run_anime()
-        if not _blocks_useful():
-            _saved = list(blocks)
-            blocks.clear()
-            _run_real()
-            if not _blocks_useful():
-                blocks.clear()
-                blocks.extend(_saved)  # 双路径都没匹配上 → 保留主路径结果（脸是真实存在的，别谎报 noface）
-    else:
-        _run_real()
-        if not _blocks_useful():
-            _saved = list(blocks)
-            blocks.clear()
-            _run_anime()
-            if not _blocks_useful():
-                blocks.clear()
-                blocks.extend(_saved)
+    _run_anime()
 
     # ── 方位标注（整组一起算）────────────────────────────────
     # 在主/兜底路径定型后执行：排布是组属性，必须等最终的脸集合确定
@@ -1002,8 +914,8 @@ def identify_ex(
         meta_noface = {
             "path": path, "chat_key": chat_key, "confidence": "noface",
             "recognized": [], "faces": [], "kind": kind,
-            "anime_score": round(a_score, 4), "real_score": round(r_score, 4),
-            "thresholds": {"anime": anime_thr, "real": real_thr},
+            "anime_score": round(a_score, 4),
+            "thresholds": {"anime": anime_thr},
         }
         if detail:
             h, w = img.shape[:2]
@@ -1013,7 +925,7 @@ def identify_ex(
                 tips.append(f"图片较小（{w}x{h}），可换分辨率更高的原图")
             if max(h, w) / max(1, short) > 2.2:
                 tips.append("画面过于狭长，可能是局部裁剪，建议发完整头像")
-            return "图中未检测到人脸（真人、动漫都没检出）。当前图片可能太小、过于模糊，或面部被头发/遮挡物大面积覆盖。建议：" + "；".join(tips) + "。", meta_noface
+            return "图中未检测到动漫人脸。当前图片可能太小、过于模糊，或面部被头发/遮挡物大面积覆盖。建议：" + "；".join(tips) + "。", meta_noface
         return "没有检测到人脸。", meta_noface
 
     hit_blocks = [b for b in blocks if b[0] > 0]
@@ -1047,8 +959,8 @@ def identify_ex(
         return {
             "path": path, "chat_key": chat_key, "confidence": conf,
             "recognized": recognized, "faces": _faces_meta, "kind": kind,
-            "anime_score": round(a_score, 4), "real_score": round(r_score, 4),
-            "thresholds": {"anime": anime_thr, "real": real_thr},
+            "anime_score": round(a_score, 4),
+            "thresholds": {"anime": anime_thr},
         }
 
     # ---------- 简洁模式：只给事实，措辞交给角色人格 ----------
@@ -1224,7 +1136,7 @@ def identify_ex(
                     best_name, best_sim = raw, e["sim"]
         lines.append(
             f"\n（都没认出来。最接近的是「{display_name(best_name)}」相似度 {best_sim:.3f}；"
-            f"当前阈值 动漫{anime_thr:.2f} / 真人{real_thr:.2f}，"
+            f"当前阈值 动漫{anime_thr:.2f}，"
             f"若图确实是该角色可在 WebUI 把动漫阈值调低到 {max(0.1, round(best_sim - 0.02, 2)):.2f} 以下）"
         )
         # 按分数分级（与简洁模式一致），而不是一律 unknown ——

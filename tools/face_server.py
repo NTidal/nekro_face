@@ -47,10 +47,9 @@ def warmup():
         face_engine.classify_anime_real(blank)
         face_engine.detect_anime(blank)
         face_engine.anime_embed(blank)
-        face_engine.detect_real(blank)
+        # 真人链路已移除（真人库为空、从未注册），不再预热 —— 省约 393 MB 常驻内存
         # 预热库缓存：63MB JSON 的解析挪到启动期，首次识别/审核不再付费
         face_engine.load_db(face_engine.ANIME_DB)
-        face_engine.load_db(face_engine.REAL_DB)
         return True
     except Exception as e:  # noqa: BLE001
         print(f"[warmup] 失败: {e}", flush=True)
