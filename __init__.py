@@ -81,7 +81,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import Field
 
 from nekro_agent.api import i18n, schemas
@@ -92,7 +92,7 @@ plugin = NekroPlugin(
     name="人脸识别",
     module_name="nekro_face",
     description="让 AI 认出图片中的动漫角色是谁，并把认不准的图收集起来供人工复核补图",
-    version="1.2.3",
+    version="1.2.4",
     author="NTidal",
     url="https://github.com/NTidal/nekro_face",
     i18n_name=i18n.i18n_text(zh_CN="人脸识别", en_US="Face Recognition"),
@@ -486,7 +486,10 @@ _Q_CACHE: dict = {}
 
 
 async def _lib_entries(force: bool = False) -> list[dict]:
-    """库概览（name/display/work/count/kind/thumbs/cover），5s TTL 缓存。"""
+    """库概览（name/display/work/count/kind/thumbs/cover），5s TTL 缓存。
+
+    顺带刷新 _KNOWN_WORKS（供 _display_name 剥离新作品前缀）。
+    """
     now = time.time()
     c = _LIB_CACHE.get("v")
     if not force and c and now - c[0] < 5:
@@ -497,15 +500,39 @@ async def _lib_entries(force: bool = False) -> list[dict]:
         r = await cl.get(f"{FACE_SERVER}/library")
     entries = (r.json() or {}).get("entries") or []
     _LIB_CACHE["v"] = (now, entries)
+    global _KNOWN_WORKS
+    _KNOWN_WORKS = _KNOWN_WORKS | _works_of_entries(entries)
     return entries
 
 
-def _resolve_from_entries(name: str, entries: list[dict]) -> tuple[str, bool]:
-    """展示名/全名 → 库内全名（防裸名重复条目），语义同旧 _resolve_db_key。
+class AmbiguousNameError(Exception):
+    """输入的展示名同时命中多个同名条目时抛出。
 
-      1. 名字本身就是库内键 → 原样
-      2. 匹配某键展示名（撞名取特征最多的键）→ 该全名
-      3. 都不匹配 → (原名, 新建)
+    典型场景：「椿」在 鸣潮 与 蔚蓝档案 各有一个条目。旧行为会静默写入
+    特征数最多的那个，导致 A 作品的图被塞进 B 作品的条目（实测已污染过
+    原神·妮露 / 明日方舟·爱丽丝 / 明日方舟·杜林 三个条目）。
+    现在改为拒绝并要求指定作品，从源头杜绝。
+    """
+
+    def __init__(self, name: str, candidates: list[dict]):
+        self.name = name
+        # candidates: [{name, display, work, count}]
+        self.candidates = candidates
+        works = "、".join(f"{c.get('work') or '未标注'}（{c.get('count', 0)} 张）"
+                          for c in candidates)
+        super().__init__(
+            f"「{name}」在库里有 {len(candidates)} 个同名条目：{works}。"
+            f"请指定作品（填「作品·角色」全名）后重试。")
+
+
+def _resolve_from_entries(name: str, entries: list[dict]) -> tuple[str, bool]:
+    """展示名/全名 → 库内全名（防裸名重复条目、防同名歧义）。
+
+      1. 名字本身就是库内键 → 原样（最准确，推荐调用方直接传全名）
+      2. 显示名唯一匹配某键 → 该全名
+      3. 显示名命中多个同名条目 → 抛 AmbiguousNameError，由调用方提示用户
+         （**不再**静默取特征最多的那个）
+      4. 都不匹配 → (原名, 新建)
     """
     name = (name or "").strip()
     if not name:
@@ -517,9 +544,46 @@ def _resolve_from_entries(name: str, entries: list[dict]) -> tuple[str, bool]:
     if len(matches) == 1:
         return matches[0]["name"], False
     if matches:
-        matches.sort(key=lambda e: -e.get("count", 0))
-        return matches[0]["name"], False
+        cands = sorted(
+            ({"name": e.get("name"), "display": e.get("display"),
+              "work": e.get("work"), "count": e.get("count", 0)} for e in matches),
+            key=lambda x: -x.get("count", 0))
+        raise AmbiguousNameError(name, cands)
     return name, True
+
+
+def _work_names(entries: list[dict]) -> list[str]:
+    """从库里已有的条目推导出全部作品名（供前端下拉用）。
+
+    不再依赖硬编码的 WORK_PREFIXES —— 否则新作品名会被当成角色名，
+    新建出无前缀的裸条目，再次形成同名重复。
+    """
+    return sorted(_works_of_entries(entries))
+
+
+def _ambiguous_payload(name: str, entries: list[dict]) -> Optional[dict]:
+    """展示名有歧义时返回候选结构，供前端弹「选择作品」；否则 None。
+
+    同名不同作品（如 鸣潮·椿 / 蔚蓝档案·椿）必须由用户明确指定，
+    不能替用户猜 —— 猜错就会把 A 的图写进 B 的条目。
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+    if any(e.get("name") == name for e in entries):
+        return None          # 已经是全名，无歧义
+    matches = [e for e in entries if e.get("display") == name]
+    if len(matches) <= 1:
+        return None
+    return {
+        "ambiguous": True,
+        "name": name,
+        "candidates": sorted(
+            ({"name": e.get("name"), "display": e.get("display"),
+              "work": e.get("work") or "", "count": e.get("count", 0)}
+             for e in matches),
+            key=lambda x: -x.get("count", 0)),
+    }
 
 
 def _load_queue() -> list[dict]:
@@ -553,12 +617,46 @@ def _save_queue(items: list[dict]) -> None:
 
 
 def _display_name(name: str) -> str:
-    """库内全名 → 展示名（去掉已知作品前缀）。"""
+    """库内全名 → 展示名（去掉作品前缀）。
+
+    优先按「库里实际存在的作品名」剥离，其次回退到内置白名单。
+    这样新增作品（如「碧蓝航线·企业」）也能正确显示为「企业」，
+    不会因为不在硬编码列表里而整名返回。
+    """
+    name = name or ""
+    works = set(_lib_cache_works())
+    for p in sorted(works, key=len, reverse=True):
+        head = p + WORK_SEP
+        if p and name.startswith(head) and len(name) > len(head):
+            return name[len(head):]
     for p in WORK_PREFIXES:
         head = p + WORK_SEP
         if name.startswith(head) and len(name) > len(head):
             return name[len(head):]
     return name
+
+
+# 库内已知作品名的缓存（由 _lib_entries 顺带刷新，供 _display_name 用）
+_KNOWN_WORKS: set[str] = set()
+
+
+def _lib_cache_works() -> set[str]:
+    """当前库里出现过的作品名（_lib_entries 每次刷新时同步更新）。"""
+    return _KNOWN_WORKS
+
+
+def _works_of_entries(entries: list[dict]) -> set[str]:
+    """从库概览条目里收集作品名。"""
+    works = set()
+    for e in entries:
+        w = (e.get("work") or "").strip()
+        if w:
+            works.add(w)
+        else:
+            n = str(e.get("name") or "")
+            if WORK_SEP in n:
+                works.add(n.split(WORK_SEP, 1)[0])
+    return works
 
 
 @plugin.mount_init_method()
@@ -1034,17 +1132,45 @@ def create_router() -> APIRouter:
     @router.get("/api/faces")
     async def list_faces() -> dict:
         entries = await _lib_entries()
-        names = [{"name": e["name"], "display": e["display"], "count": e["count"], "kind": e["kind"]}
+        names = [{"name": e["name"], "display": e["display"], "count": e["count"],
+                  "kind": e["kind"], "work": e.get("work") or ""}
                  for e in entries]
         return {"names": names, "total": len(names)}
 
+    @router.get("/api/works")
+    async def list_works() -> dict:
+        """库里出现过的作品名（供注册表单下拉，动态而非硬编码）。
+
+        另附「重名角色」清单，前端可在注册时提前提示。
+        """
+        entries = await _lib_entries()
+        works = _work_names(entries)
+        # 统计重名（同一 display 对应多个 work）
+        from collections import defaultdict
+        by_disp = defaultdict(list)
+        for e in entries:
+            d = e.get("display") or ""
+            if d:
+                by_disp[d].append({"name": e.get("name"), "work": e.get("work") or "",
+                                   "count": e.get("count", 0)})
+        dup = {d: v for d, v in by_disp.items() if len(v) > 1}
+        return {"works": works, "duplicated": dup,
+                "duplicated_count": len(dup)}
+
     @router.post("/api/register")
-    async def api_register(name: str = Form(...), file: UploadFile = File(...)) -> dict:
+    async def api_register(name: str = Form(...), file: UploadFile = File(...)):
         name = name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="名字不能为空")
+        entries = await _lib_entries()
+        # 同名歧义：返回 409 + 候选结构，让前端提示「请指定作品」，不静默猜。
+        # 用 JSONResponse 而非 HTTPException —— NA 的异常处理器会把 detail
+        # 转成字符串，丢失结构，前端就拿不到候选列表了。
+        ambiguous = _ambiguous_payload(name, entries)
+        if ambiguous:
+            return JSONResponse(status_code=409, content={"detail": ambiguous})
         # 与审核页一致：把展示名解析成库内全名，避免产生无前缀的重复条目
-        db_key, is_new = _resolve_from_entries(name, await _lib_entries())
+        db_key, is_new = _resolve_from_entries(name, entries)
         path = await _save_upload(file)
         try:
             ok, out = await _call_server("/register", {"image": path, "name": db_key, "mode": "auto"})
@@ -1216,7 +1342,11 @@ def create_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="原图已丢失，无法注册")
 
         # ⚠️ 把展示名解析成库内全名，避免新建无前缀的重复条目
-        db_key, is_new = _resolve_from_entries(name, await _lib_entries())
+        entries = await _lib_entries()
+        ambiguous = _ambiguous_payload(name, entries)
+        if ambiguous:
+            return JSONResponse(status_code=409, content={"detail": ambiguous})
+        db_key, is_new = _resolve_from_entries(name, entries)
 
         payload = {"image": img, "name": db_key, "mode": "anime",
                    # 审核注册：动漫脸检出失败时直接报错，不静默入库
