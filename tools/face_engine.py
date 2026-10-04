@@ -606,7 +606,12 @@ def resolve_image_path(raw: str, chat_key: str = "") -> Optional[str]:
     1. 主容器真实路径（直接存在）
     2. 纯文件名 / 沙盒视角路径（如 /app/uploads/xxx.jpg）→ 按文件名在 uploads 下查找，
        **优先该 chat_key 目录**，避免多群同名文件取错
-    3. 兜底：该 chat_key 目录下最近的图片 → 全局最近的图片
+    3. 「最近一张图」兜底 —— **仅当调用方没有指定具体图片时**（raw 为空）
+
+    注意第 3 条的门槛：如果调用方**明确给了一个路径**却解析不到
+    （典型原因：该路径没有挂进本容器），这里必须返回 None 让调用方报
+    「找不到图片」。否则会拿 uploads 里最新的一张**无关图片**去识别，
+    还返回 confidence=certain —— 静默认错人比直接报错危险得多。
     """
     p = (raw or "").strip()
     if p and os.path.exists(p):
@@ -636,7 +641,11 @@ def resolve_image_path(raw: str, chat_key: str = "") -> Optional[str]:
                         return h
             return max(hits, key=os.path.getmtime)
 
-    # 3. 兜底：该群最近图 → 全局最近图
+    # 指定了具体图片却一路没解析出来 → 报错，绝不拿别的图冒充
+    if p:
+        return None
+
+    # 3. 兜底（仅限「调用方没指定图片」= 就是要该会话最近那张）：该群最近图 → 全局最近图
     if chat_key:
         local = _latest_in_dir(os.path.join(UPLOAD_ROOT, chat_key))
         if local:

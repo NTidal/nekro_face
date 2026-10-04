@@ -14,7 +14,7 @@ NekroAgent 插件：让 AI 在聊天中**自己会认人**（动漫角色），�
 - **人工侧**：Aurora 主题 WebUI（总览 / 待审核队列 / 角色库），深色优先、支持日间模式
 - **识别**：纯本地离线推理，动漫 YOLOv8 检测 + CCIP 特征（768 维）
 
-版本：**1.2.2**　作者：**NTidal**
+版本：**1.2.3**　作者：**NTidal**
 
 ---
 
@@ -262,3 +262,78 @@ FACE_SERVER_AUTOSTART: true              # 服务不在就自己拉起子进程
 >
 > 全新安装（单实例）时无需任何 Docker 操作：插件会按
 > `配置 → {NA数据目录}/face → 插件数据目录/face` 的顺序解析数据目录并自动创建。
+
+### ⚠️ 每个实例的绝对路径都要挂进服务容器
+
+引擎解析图片时，**「绝对路径存在就直接用」**。而各实例看到的路径前缀不同：
+
+| 实例 | 传给服务的图片路径 |
+| --- | --- |
+| instance1 | `/var/lib/docker/nekro_agent_data/...` |
+| instance2 | `/var/lib/docker/nekro_agent_data2/...` |
+| instance3 | `/var/lib/docker/nekro_agent_data3/...` |
+
+所以**同一份宿主目录必须在服务容器里按「各实例看到的绝对路径」分别挂载**：
+
+```yaml
+volumes:
+  - /var/lib/docker/nekro_agent_data/face:/face_data
+  - /var/lib/docker/nekro_agent_data/face:/var/lib/docker/nekro_agent_data/face
+  - /var/lib/docker/nekro_agent_data/face:/var/lib/docker/nekro_agent_data2/plugin_data/NTidal.nekro_face/face
+  - /var/lib/docker/nekro_agent_data/face:/var/lib/docker/nekro_agent_data3/face
+```
+
+**新增实例时最容易漏这一步**（实测踩过：第 3 个实例加进来时没补挂载，
+它的「测试识别」一直返回**完全无关的角色**）。上表的别名行必须与
+`FACE_SERVER_URL` 指向的服务容器一一对应。
+
+> 插件侧 `FACE_DATA_DIR` 也要指向该实例能看到的那份共享目录，
+> 否则上传图会落到服务读不到的地方（同上症状）。
+
+同理，`FACE_UPLOAD_ROOT`（各实例的 `{数据目录}/uploads`）也要按各自前缀挂进去，
+且**务必确认挂的是各实例真正在写的那份宿主目录** —— 挂错成另一个目录时，
+引擎按文件名兜底会命中旧图或找不到图。
+
+### 引擎行为：解析不到就报错，不会拿别的图冒充
+
+`resolve_image_path()` 的兜底分两种情况：
+
+- **调用方没传图片路径**（留空 = 「识别当前会话最近一张」）→ 取最近一张，这是设计功能
+- **调用方传了具体路径但解析不到** → 返回 `None`，上层报「找不到图片」
+
+第二种情况**绝不会**回退到「最近一张图」。这条约束是有意为之：
+早期版本会静默回退，导致路径没挂载时拿 uploads 里最新的一张**无关图片**
+去识别，还返回 `confidence=certain` —— 静默给出错误答案比直接报错危险得多。
+
+排查识别结果异常时，先确认服务容器能否看到调用方传来的那个绝对路径。
+
+---
+
+## 变更记录
+
+### v1.2.3
+
+- **修复 WebUI「测试识别」点了没反应**：`face_webui.html` 里残留两处已删除的
+  真人阈值引用（`$('#identifyRealThreshold').value` 与未定义变量 `r`），
+  提交时抛 JS 异常，请求根本没发出。v1.2.0 移除真人链路时只删了表单元素、
+  漏删了这段脚本。
+- **加固 `resolve_image_path()`**：调用方明确传了图片路径却解析不到时，
+  返回 `None` 报「找不到图片」，不再静默回退到「取最近一张图」。
+  原先的行为会在路径未挂载时拿一张**无关图片**去识别并给出
+  `confidence=certain`，把配置问题伪装成识别结果。留空路径
+  （= 识别当前会话最近一张）的语义保持不变。
+
+### v1.2.2
+
+- 修复 `/identify` 全线 HTTP 500：v1.2.0 改了 `identify_ex` / `identify`
+  的签名，`face_server.py` 与 `face_identify.py` 两个调用点没跟着改。
+
+### v1.2.1
+
+- 修复启动崩溃：清理真人链路时误删 `_LIB_CACHE` / `_Q_CACHE` 定义，
+  插件初始化在 `_load_queue()` 抛 `NameError`，整个插件加载失败。
+
+### v1.2.0
+
+- 移除真人识别链路（真人库为空、从未注册），常驻内存约 −49%。
+
