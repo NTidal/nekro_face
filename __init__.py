@@ -92,7 +92,7 @@ plugin = NekroPlugin(
     name="人脸识别",
     module_name="nekro_face",
     description="让 AI 认出图片中的动漫角色是谁，并把认不准的图收集起来供人工复核补图",
-    version="1.2.4",
+    version="1.2.5",
     author="NTidal",
     url="https://github.com/NTidal/nekro_face",
     i18n_name=i18n.i18n_text(zh_CN="人脸识别", en_US="Face Recognition"),
@@ -239,11 +239,6 @@ config = plugin.get_config(FaceRecognitionConfig)
 # ---------------------------------------------------------------------------
 # 路径解析（全部可由配置项覆盖；留空时按下列顺序自动探测）
 #
-# 识别引擎随插件包分发（tools/），数据目录 / 引擎解释器 / 服务地址均为配置项，
-# 不依赖任何写死的部署路径。
-# ---------------------------------------------------------------------------
-_DEFAULT_FACE_DIR = "/var/lib/docker/nekro_agent_data/face"
-_DEFAULT_UPLOAD_ROOT = "/var/lib/docker/nekro_agent_data/uploads"
 _PLUGIN_DIR = Path(__file__).resolve().parent
 
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -254,12 +249,40 @@ WORK_PREFIXES = ("星铁", "鸣潮", "原神", "崩坏", "明日方舟", "终末
                  "蔚蓝档案", "异环", "NIKKE", "绝区零")
 
 
+def _na_data_dir() -> Optional[str]:
+    """本实例的 NA 数据目录（NEKRO_DATA_DIR）。
+
+    多实例部署时每个实例的数据目录不同（…data / …data2 / …data3 / …data4），
+    所以必须读环境变量，不能写死 instance1 的路径。
+    """
+    try:
+        from nekro_agent.core.os_env import OsEnv
+
+        d = str(getattr(OsEnv, "DATA_DIR", "") or "").strip()
+        if d:
+            return d
+    except Exception:  # noqa: BLE001
+        pass
+    env = os.environ.get("NEKRO_DATA_DIR", "").strip()
+    return env or None
+
+
 def _resolve_data_dir() -> str:
-    """人脸数据目录：配置优先 → {NA数据目录}/face（存在则复用）→ 插件数据目录/face。"""
+    """人脸数据目录：配置优先 → {本实例NA数据目录}/face（存在则复用）→ 插件数据目录/face。
+
+    注意中间那一跳必须用**本实例**的数据目录：早先这里写死成
+    /var/lib/docker/nekro_agent_data/face（instance1 的路径），
+    其余实例上该路径不存在，于是静默落到「插件数据目录/face」——
+    那是个空目录，没有 onnx 模型，降级子进程会直接 NoSuchFile 崩掉。
+    实测 NA3 / NA4 都踩过这个坑。
+    """
     if config.FACE_DATA_DIR.strip():
         return str(Path(config.FACE_DATA_DIR.strip()).expanduser())
-    if os.path.isdir(_DEFAULT_FACE_DIR):
-        return _DEFAULT_FACE_DIR
+    na_dir = _na_data_dir()
+    if na_dir:
+        cand = os.path.join(na_dir, "face")
+        if os.path.isdir(cand):
+            return cand
     return str(plugin.get_plugin_data_dir() / "face")
 
 
@@ -271,11 +294,18 @@ def _resolve_tools_dir() -> str:
 
 
 def _resolve_upload_root() -> str:
-    """NA 上传目录（引擎按文件名兜底找图用）：配置优先 → {NA数据目录}/uploads。"""
+    """NA 上传目录（引擎按文件名兜底找图用）：配置优先 → {本实例NA数据目录}/uploads。
+
+    同样不能用写死的 instance1 路径：多实例下只有 instance1 上那个路径存在，
+    其余实例会静默落到推算值，容易与真实上传目录不一致。
+    """
     if config.FACE_UPLOAD_ROOT.strip():
         return str(Path(config.FACE_UPLOAD_ROOT.strip()).expanduser())
-    if os.path.isdir(_DEFAULT_UPLOAD_ROOT):
-        return _DEFAULT_UPLOAD_ROOT
+    na_dir = _na_data_dir()
+    if na_dir:
+        cand = os.path.join(na_dir, "uploads")
+        if os.path.isdir(cand):
+            return cand
     # plugin_data_dir = {DATA}/plugin_data/{key} → 上两级即 {DATA}
     return str(Path(plugin.get_plugin_data_dir()).resolve().parent.parent / "uploads")
 

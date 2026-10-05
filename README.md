@@ -14,7 +14,7 @@ NekroAgent 插件：让 AI 在聊天中**自己会认人**（动漫角色），�
 - **人工侧**：Aurora 主题 WebUI（总览 / 待审核队列 / 角色库），深色优先、支持日间模式
 - **识别**：纯本地离线推理，动漫 YOLOv8 检测 + CCIP 特征（768 维）
 
-版本：**1.2.4**　作者：**NTidal**
+版本：**1.2.5**　作者：**NTidal**
 
 ---
 
@@ -310,6 +310,27 @@ volumes:
 ---
 
 ## 变更记录
+
+### v1.2.5
+
+- **修复多实例下数据目录解析错位**：`_resolve_data_dir()` 中间那一跳写死成
+  `/var/lib/docker/nekro_agent_data/face`（instance1 的路径），其余实例上
+  该路径不存在，于是**静默落到「插件数据目录/face」**——那是个空目录，
+  没有 onnx 模型，降级子进程会直接 `NoSuchFile` 崩溃。
+
+  实测：NA4 的「测试识别」报 500 `Load model .../anime_real_cls.onnx failed:
+  File doesn't exist`；NA3 早先也踩过同一个坑（当时靠显式配 `FACE_DATA_DIR`
+  绕过）。
+
+  现在改为读 `OsEnv.DATA_DIR`（即本实例的 `NEKRO_DATA_DIR`）推导
+  `{本实例数据目录}/face`，不再依赖任何写死的实例路径。
+  `_DEFAULT_UPLOAD_ROOT` 同样处理。
+
+  于是 `FACE_DATA_DIR` 可以留空，插件自动就能命中本实例挂载的共享数据集。
+
+- **多实例部署注意**：各实例的 `{DATA}n/face` 都必须是**挂载点**（指向同一份
+  共享数据集），且该绝对路径要同步挂进 face 服务容器。缺一个就会出现
+  「这台认得出、那台认不出」或 500。参见《多实例部署注意》。
 
 ### v1.2.4
 
